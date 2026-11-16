@@ -17,7 +17,11 @@ Newest entry at the top. One entry per work session.
   and the Pydantic models `Exercise` and `Attempt`. 25 tests, all on a temporary database.
 - Part 3: `GapExercise`, the first prompt, automatic `prompt_version` (name + hash of the template). Tests: 74 in total.
 - Part 4, experiments with the real API (`scripts/part4_experiments.py`), before writing `llm.py`.
-- Learning notes 004 (pytest) and 005 (SQLite).
+- Part 4: `tutor/llm.py`, the AI engine. `ask()` sends a prompt and returns a validated Pydantic object, with
+  retries, a log (`logs/ai_log.jsonl`) and a daily counter. 40 tests with a fake AI and a fake clock
+  (0 real requests). Tests: 114 in total, ruff clean. Part 4 ticked in PROGRESS.md.
+- Two commits (`233adc4` Part 3 + experiments, `05a962d` Part 4), pushed to GitHub.
+- Learning notes 004 (pytest), 005 (SQLite), 006 (fakes and monkeypatch), 007 (retries with a time budget).
 
 **AI experiments (Part 4) — what we learned**
 
@@ -62,20 +66,33 @@ Other findings:
 | `GapExercise`: the hint must not contain the answer (whole words), clean accepted answers | Found while reviewing Part 3 |
 | No "In my own words" section in learning notes | My choice |
 | Tests use a fake model name (`fake-test-model`) | Tests must not depend on `.env` |
+| Any 400 that is not about the key → `AIRequestRejectedError` "the app sent a request Google refused, see the log", never retried | Retrying later would never fix a refused request |
+| "Wait N seconds" errors carry the number in `retry_after_seconds` | A page can show it or count down |
+| `AI_DAILY_LIMIT_MARGIN=20`: the app stops at 480 of 500 | The counter does not see requests made outside `llm.py`, and failed requests count |
+| Every exception name ends in `Error` (`AIUnavailableError`, `AIDailyLimitError`...) | Ruff rule N818, and the same style as `AIConfigurationError`. I chose renaming over turning the rule off |
+| The AI returns a `GapExerciseDraft`; the code adds `skill_id` and `level` (Part 5) | The code chooses the skill, so the AI cannot get it wrong. A hand review of 20 exercises (Step 2) checks they really test the skill |
+| `.env` needs only `AI_DAILY_LIMIT`; the other new settings have defaults | `.env.example` lists them all, so I can see every setting in one place |
 
 **Problems and how I solved them**
 
 - I changed `skills.py` without noticing (one extra space). `git status` showed it, `git diff` showed what it was, `git restore` undid it.
 - The missing final newline (ruff W292) comes from Claude's file-writing tool, not from my editor.
 - My first counts were wrong twice (51 → 49 fill-the-gap skills; 47 → 46 tests). Tests and checking by hand caught them.
+- The real `openai.APITimeoutError` cannot be created in a test without a network request. The test creates it
+  without its `__init__`; `llm.py` only checks its type, so that is enough (learning note 006).
+- Ruff found 7 problems after `llm.py`: 1 missing newline (auto-fixed), 1 line too long, 5 × N818 (fixed by the rename).
+- `git` shows "LF will be replaced by CRLF" warnings on Windows: harmless, Git changes the invisible line endings.
 
 **Open questions**
 
-- The real 429 body format.
+- The real 429 body format. The daily-quota check looks for words from Google's docs (`PerDay`, `daily`);
+  fix it when the log keeps a real 429 body.
 
 **Next**
 
-- Part 4: write `tutor/llm.py` with the fake-AI tests. Then Part 5: the demo script.
+- Part 5: `GapExerciseDraft` (the AI does not return `skill_id` and `level`), the prompt with ONE skill, a
+  sub-topic and sentences to avoid, then `scripts/step1_demo.py` (one random A2 skill → `ask()` → save in the
+  database). That closes Step 1.
 
 ---
 

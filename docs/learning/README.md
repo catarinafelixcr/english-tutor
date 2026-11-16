@@ -6,7 +6,7 @@ Each note says what it is, why I needed it, and how I used it here.
 ## How to add a note
 
 1. Copy `_template.md` to a new file with the next number: `002-topic-name.md`.
-2. Fill it in (or ask Claude Code to fill it, then write "In my own words" myself).
+2. Fill it in (or ask Claude Code to fill it).
 3. Add one line to the index below.
 
 ## Index
@@ -18,6 +18,8 @@ Each note says what it is, why I needed it, and how I used it here.
 | 003 | [Git basics](003-git-basics.md) | 0 | 2026-11-16 |
 | 004 | [pytest](004-pytest.md) | 1 | 2026-11-16 |
 | 005 | [SQLite](005-sqlite.md) | 1 | 2026-11-16 |
+| 006 | [Fakes in tests with monkeypatch](006-fakes-and-monkeypatch.md) | 1 | 2026-11-16 |
+| 007 | [Retries with a time budget](007-retries-with-a-time-budget.md) | 1 | 2026-11-16 |
 
 ## Notes I expect to write
 
