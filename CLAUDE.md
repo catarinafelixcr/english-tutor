@@ -97,4 +97,6 @@ docs/             plan, progress, journal and learning notes
 
 - Before writing code for a step, show a short plan and wait for my OK.
 - After writing code, explain it in a few lines and tell me how to test it.
+- Before running any terminal command (PowerShell, git, pip...), explain in plain words what each part does, ask me "Can I run it?", and STOP. Run it only after I answer yes in the chat.
+  Exception: git commands need no explanation, only the question.
 - If something in the plan is unclear or looks wrong, ask me. Do not guess.
