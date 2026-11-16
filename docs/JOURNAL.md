@@ -5,6 +5,71 @@ Newest entry at the top. One entry per work session.
 
 ---
 
+## 2026-11-16 - Step 1 done: the first real exercise in the database (Part 5)
+
+**What I did**
+
+- The AI now returns a `GapExerciseDraft` (sentence, expected answer, accepted answers, hint). The code adds
+  `skill_id` and `level`, so the AI cannot choose the wrong skill.
+- A new prompt with ONE skill: name, typical mistake (marked as "only an illustration, do not reuse its words"),
+  `tag_when` (the line is left out when the skill has none), a sub-topic, and the last 5 sentences to avoid.
+- New file `tutor/exercises.py`: `TOPICS` (4 topics × 6 sub-topics), `choose_random_skill(level)` (at or below
+  the level), and `create_gap_exercise(skill_id, level, topic)` (prompt → `llm.ask()` → save).
+- `exercises` table: new columns `sub_topic`, `accepted_answers` (JSON list) and `hint`. Free today, because
+  `data/tutor.db` did not exist yet: no migration.
+- No repeated sentences: a sentence identical (after normalizing) to one already saved for the skill is an
+  invalid answer, so `llm.ask()` retries once.
+- `scripts/step1_demo.py`, with an optional skill id. `scripts/part4_experiments.py` keeps a frozen copy of the old prompt.
+- Tests: 146 in total (32 new), ruff clean. Learning note 008 (schema factory with a `ClassVar`).
+
+**The real demo (2 requests, no retry)**
+
+| Run | Topic / sub-topic | Sentence | Answer |
+| --- | --- | --- | --- |
+| 1 | daily life / a visit to the dentist | My dentist always ___ (check) my teeth during a visit. | checks |
+| 2 | travel / visiting a museum | The guide ___ (start) the museum tour at ten o'clock. | starts |
+
+- The second prompt listed the first sentence under "sentences already used" (checked in the log); the AI wrote
+  a clearly different one.
+- Prompt tokens: **about 300** (298 and 308), against 1069 with the old prompt and its list of 49 skills (−72%).
+  1.4 s and 1.1 s. Prompt version `gap_exercise@c2deeb`.
+- Compared with the experiments ("My brother usually ___ (wake) up" every time): the code choosing skill and
+  sub-topic gives real variety.
+
+**Decisions and why**
+
+| Decision | Why |
+| --- | --- |
+| The AI returns a draft; the code adds skill and level | The code chooses them: the AI cannot get them wrong. A hand review of 20 exercises in Step 2 checks the AI wrote about the right skill |
+| The duplicate check lives in the schema, not in a new retry loop | It reuses the "bad answer → retry once" rule of `llm.ask()`: logged, counted, inside the 4-request maximum |
+| The prompt shows the last 5 sentences; the check uses ALL saved sentences of the skill | A short prompt, but no repeated sentence ever |
+| The `tag_when` line template is in the version hash | Changing its words must give a new prompt version too |
+| `accepted_answers`, `hint` and `sub_topic` columns now | Step 2 (code check, hint button) and Step 7 (Review) need them; adding them later needs a migration |
+| New file `tutor/exercises.py` | Logic between prompt and database must be tested and reused by the Practice page (pages stay thin) |
+| The experiment script keeps the old prompt | So it stays a true record of what E1–E4 sent |
+
+**Problems and how I solved them**
+
+- 9 tests failed with `NameError: name 'used_sentences' is not defined`. Inside a class body,
+  `used_sentences = tuple(used_sentences)` cannot read the function argument with the same name: Python looks in
+  the class and the module, not in the function around it. Fixed by renaming the argument
+  (`sentences_already_saved`). See learning note 008.
+- Two lines were 121 characters (limit 120): split.
+
+**Open questions / notes for Step 2**
+
+- The two hints were almost the same ("Think about the correct ... form for he, she, or it"): generic, and they
+  name the grammar rule, which makes the exercise easier. In the Step 2 prompt, ask for hints about the meaning
+  of the sentence.
+- `accepted_answers` was empty both times (correct for "checks" and "starts"). Watch if the AI fills it when
+  other answers really exist.
+
+**Next**
+
+- Step 2 - Practice. First a detailed plan, as for Step 1.
+
+---
+
 ## 2026-11-16 - Step 1: skill list, database, first prompt, AI experiments
 
 **What I did**
