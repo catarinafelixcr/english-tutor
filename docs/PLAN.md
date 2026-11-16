@@ -219,6 +219,9 @@ This is the first version you can really study with, and it copies the page I bu
 - [x] `corrected_sentence` check (2026-11-16): my sentence with each quote replaced by its correction must give `corrected_sentence`. If not, it is only logged (`logs/grading_problems.jsonl`), never retried.
 - [ ] Show the result in green, yellow or red, with the rule and the corrected sentence.
 - [ ] Add a hint button. Save if you used it.
+- [ ] "Report a problem" on the result box (2026-11-16): "the sentence is bad" or "the grade is wrong", with an optional comment. Saved in a new table `problem_reports` (exercise id, submission id, kind, my answer, comment, date; one row per answer and kind). A new table needs no migration: `CREATE TABLE IF NOT EXISTS` adds it to an old database. A sentence reported as bad leaves the stock.
+- [ ] "Skip: this sentence is bad" before answering (2026-11-16): saves a `bad_sentence` report (my answer empty, the submission id reserved for that exercise, no attempt) and takes the sentence out of the stock. A bad sentence is often impossible to answer.
+- [ ] One answer is never saved twice (2026-11-16): the page reserves one `submission_id` per exercise on screen. `grade_gap_answer()` stops before the AI call if it is already saved, and `save_attempts()` checks again under a write lock (`BEGIN IMMEDIATE`). Tests: the same answer twice, and two gradings at the same moment.
 - [x] Save every attempt with `save_attempt()`, including the seconds you took.
 
 **Two more exercise types (same page, same grading code)**
@@ -272,10 +275,12 @@ This step adds the part you asked for: the app tells you what to study and teach
 - [ ] Write `skill_stats()`: for each skill, the number of attempts, accuracy over the last 10 attempts, and the date of the last attempt. Count a partial answer as half.
 - [ ] Give each skill a status: new (under 5 attempts), weak (under 60%), learning (60 to 85%), strong (over 85%).
 - [ ] Only targeted attempts count for the mastery score. Detected attempts are a warning signal.
+- [ ] Reported attempts do not count (decided 2026-11-16): every attempt on an exercise reported as `bad_sentence` (by exercise id), and every attempt of an answer reported as `wrong_grade` (by submission id), is left out of the mastery score, whatever the verdict. The rows stay in the database; only `mastery.py` leaves them out (`problem_reports`, Step 2 Part 3).
 - [ ] Write `recommend()`: return the 3 weakest skills. Start with the ones at or below your level, because basics like verb to be matter most. `writing_general`, `listening` and `speaking` are never recommended as grammar skills. `spelling` is a normal skill.
 - [ ] Detected mistakes become visible: if a skill gets 3 detected mistakes in 14 days, Home suggests 5 targeted sentences on it. Naturalness rows do not count for this rule.
 - [ ] Test: naturalness rows never change the mastery score and never create a warning.
 - [ ] Write tests with fake attempts to check the statuses.
+- [ ] Tests for reported attempts: a wrong attempt on a `bad_sentence` exercise does not lower the score; a correct one does not raise it; an answer reported as `wrong_grade` is left out (all its rows), but other answers on the same exercise still count; the reported rows are still in `attempts`.
 
 **"You must study X" message**
 
@@ -354,6 +359,7 @@ Your mistakes come back on a schedule until you know them, and this is what make
 - [ ] For Writing and Translate mistakes, do not repeat your old text. Ask the AI for a new fill-the-gap sentence on the same skill and the same kind of mistake.
 - [ ] Add the vocabulary you missed in Listening as flashcards: the word, and you type a sentence with it.
 - [ ] Limit reviews to 20 a day, so a bad week does not create a mountain.
+- [ ] Never bring back an exercise I reported as a bad sentence (`problem_reports`, kind `bad_sentence`, Step 2 Part 3).
 - [ ] Show the number of reviews due on Home and next to the menu item.
 - [ ] Write tests for the box moves and the due dates.
 
@@ -375,6 +381,7 @@ By now you have weeks of real answers, so the charts show something true.
 - [ ] One definition of accuracy, the same as mastery: targeted attempts only, partial = 0.5, counted by `submission_id`. Naturalness rows never count.
 - [ ] Every chart shows the number of answers behind it. Fewer than 5 answers = grey, with "not enough data yet".
 - [ ] Days, weeks and hours use Europe/Lisbon time.
+- [ ] Speed charts (seconds per answer) leave out answers that took more than about 3 minutes: I probably left the page. The database keeps the real seconds; only the chart filters them (2026-11-16).
 - [ ] Status colors always come with a text label.
 - [ ] One line under each chart says what to do next.
 
