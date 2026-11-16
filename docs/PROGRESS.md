@@ -4,7 +4,7 @@ Current step: **Step 2 - Practice** (started 2026-11-16)
 
 Tick a task when it is finished. Write the date when a step is done.
 
-## Step 0 – Setup
+## Step 0 - Setup
 
 - [x] GitHub repo created (README, MIT license, Python .gitignore)
 - [x] Virtual environment created
@@ -19,7 +19,7 @@ Done when: the app opens in the browser with all menu items, and the repo is on 
 
 Done on: 2026-11-16
 
-## Step 1 – Foundation
+## Step 1 - Foundation
 
 - [x] Part 1: skill list (`tutor/skills.py`, 53 skills) with tests
 - [x] Part 2: database (`tutor/db.py`, `Exercise` and `Attempt` models) with tests
@@ -31,22 +31,22 @@ Done when: a small script asks the AI for one fill-the-gap sentence, gets a vali
 
 Done on: 2026-11-16
 
-## Step 2 – Practice
+## Step 2 - Practice
 
 - [x] Part 1: batches of 5 exercises per request, `exercise_type` column (first migration, with backup), stricter batch prompt (one clear signal, level vocabulary, meaning hints)
 - [x] First thing next session: run `python -m scripts.step2_batch_demo present_simple` (signal + default effort, never tested for real: 2 tries today, both 503). Done: 0 of 5 weak, first try
 - [x] Part 2: check answers (code first, then the AI), `GapGrade`, save attempts, exercise stock (never wait for a live request). Done 2026-11-16: 327 tests, grade demo 6/6 graded with the real AI
-- [ ] Part 3: the Practice page (fill the gap)
+- [x] Part 3: the Practice page (fill the gap), with hint, skip, report a problem, no double save. Done 2026-11-16: 356 tests (11 page tests with AppTest), tested in the browser
 - [ ] Part 4: gold file (50 rows), `run_eval.py`, hand review of 20 exercises
 - [ ] Part 5: Fix the error and Word order
 
 Done when: you can do 20 sentences without an app error, every attempt is in the database with a skill tag, and the grader agrees with you on 45 of the 50 gold rows.
 
-## Step 3 – Writing
+## Step 3 - Writing
 
 Not started.
 
-## Step 4 – Tutor brain, Learn and Home
+## Step 4 - Tutor brain, Learn and Home
 
 Not started.
 
@@ -54,23 +54,23 @@ Not started.
 
 Not started.
 
-## Step 6 – Translate
+## Step 6 - Translate
 
 Not started.
 
-## Step 7 – Review
+## Step 7 - Review
 
 Not started.
 
-## Step 8 – Progress dashboard
+## Step 8 - Progress dashboard
 
 Not started.
 
-## Step 9 – Speaking and conversation
+## Step 9 - Speaking and conversation
 
 Not started.
 
-## Step 10 – Polish
+## Step 10 - Polish
 
 Not started.
 

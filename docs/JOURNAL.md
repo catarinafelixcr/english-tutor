@@ -5,6 +5,50 @@ Newest entry at the top. One entry per work session.
 
 ---
 
+## 2026-11-16 - Step 2 Part 3: the Practice page
+
+**What I did**
+
+- The Practice page (`pages/practice.py`): skill, level and topic selectors; one sentence from the stock; answer box (Enter sends); hint; green / yellow / red result with the 3 parts, the corrected sentence and the memory tip; "Next sentence"; a session counter ("This session: 7 answers · 5 correct").
+- Three additions of mine: "Report a problem" on the result, "Skip: this sentence is bad" before answering, and a guard so one answer is never saved twice.
+- `init_db()` now runs once when the app starts (`@st.cache_resource` in `app.py`).
+- 4 commits (`b21fdf1`, `dd78da2`, `064684a`, `e1870c8`). Tests: 356 (327 before), ruff clean. Not pushed yet.
+- Learning note 012: how Streamlit reruns a page and remembers things (`session_state`).
+
+**Decisions and why**
+
+| Decision | Why |
+| --- | --- |
+| Default level A2 | I change it myself when the A2 skills are strong |
+| With "Any skill", the skill name stays hidden until I answer | The name says the rule; the hint must be about meaning, never the grammar |
+| The skill selector comes first, then the level; the level can go up, never below the skill's level | A B1 skill in an A2 exercise makes no sense (PLAN.md) |
+| One selectbox, labels like "Verbs · Present perfect (B1)" | Streamlit's selectbox has no groups; the category at the start does the grouping |
+| A filter change = a new exercise; the old one stays in the stock | Nothing is lost, no request is wasted |
+| Reports in a new table `problem_reports`, not a log file | "A bad sentence leaves the stock" is a SQL rule (`NOT EXISTS`), and Part 4 / Step 7 will query the reports |
+| No migration for the new table | A migration changes tables that exist (a new column). `CREATE TABLE IF NOT EXISTS` adds a new table to an old database; database version stays 2, no backup needed |
+| `UNIQUE (submission_id, kind)` on reports | A double click on "Send report" saves one row |
+| Double save: the page reserves a `submission_id` per exercise; `grade_gap_answer()` stops before the AI call if it is saved; `save_attempts()` checks again under `BEGIN IMMEDIATE` | A rerun while the AI grades can let the first run finish AND start a second one. Only a lock inside the database makes "check, then insert" one step |
+| Skip button saves a `bad_sentence` report with an empty answer and no attempt | A bad sentence is often impossible to answer; I should not have to type something to report it |
+| Mastery (Step 4): attempts on `bad_sentence` exercises and answers reported as `wrong_grade` do not count, whatever the verdict; the rows stay | A bad sentence or a wrong grade is noise, not my level. Written in PLAN.md Step 4 with its tests |
+| Speed charts (Step 8) leave out answers over about 3 minutes; the database keeps the real seconds | I probably left the page; the raw data stays honest |
+| After an AI error while grading, the answer stays in the box and the seconds keep counting | Nothing is saved, so "Check" again is safe, and the time stays honest |
+| Every text from the AI or the database goes through `escape_markdown()` | Markdown turns `___` into a line and `$` into a formula |
+| The page passes `db.DEFAULT_DATABASE_PATH` in every call | Default arguments are fixed when Python reads the function; this lets the page test use a temporary database |
+
+**Problems and how I solved them**
+
+- The first test run passed with no change (355, then 356 with the Skip test).
+- A starting value that is a list would be shared between resets: `forget_current_exercise()` creates a new list each time.
+- I did not make the correct word bold inside the corrected sentence (my plan said so): a correct answer has no `correction` field to find it, so it would work only sometimes.
+- `docs/PROGRESS.md` had my own change (long dashes → short hyphens in the titles); kept as it is.
+
+**Next**
+
+- Done the same day: tested the page in the browser, it works. Part 3 ticked.
+- Part 4: gold file (50 rows), `run_eval.py`, hand review of 20 exercises. The `wrong_grade` reports can give real rows for the gold file.
+
+---
+
 ## 2026-11-16 - Step 2 Part 2: checking answers, the grader prompt, the exercise stock
 
 **What I did**

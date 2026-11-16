@@ -24,6 +24,7 @@ Each note says what it is, why I needed it, and how I used it here.
 | 009 | [Database migrations (PRAGMA user_version)](009-database-migrations.md) | 2 | 2026-11-16 |
 | 010 | [Database transactions: all or nothing](010-database-transactions.md) | 2 | 2026-11-16 |
 | 011 | [One object shared by several calls (the request budget)](011-one-object-shared-by-several-calls.md) | 2 | 2026-11-16 |
+| 012 | [How Streamlit reruns a page and remembers things (session_state)](012-streamlit-reruns-and-session-state.md) | 2 | 2026-11-16 |
 
 ## Notes I expect to write
 

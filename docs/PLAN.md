@@ -187,8 +187,8 @@ This is the first version you can really study with, and it copies the page I bu
 - [ ] First migration (database version 1 → 2): adds `exercise_type` and sets the old Practice rows to `gap`. Before ANY migration runs, `init_db()` copies `data/tutor.db` to `data/backups/tutor_before_v2_<UTC time>.db`. No copy for a new database or one already up to date. A test upgrades a real version-1 database.
 - [x] Use saved exercises first: exercises that were created but never answered are shown before the app asks the AI for new ones.
 - [x] Exercise stock (2026-11-16, to build in Part 2, after a day with 8 × 503 "high demand" out of 12 requests): Practice never depends on a live request to show the next exercise. It keeps a stock of unused exercises in the database (`get_unanswered_exercises()`). When the stock for a skill is below 3, it creates a new batch. If the AI is busy, I keep practising from the stock and see a small notice, not an error. Only an EMPTY stock with a busy AI shows a message (with a "Try again" button). To decide in Part 2: a refill while the stock is not empty should not make me wait for the full retry budget (about 20 s).
-- [ ] Add selectors for level and topic (daily life, data science and work, travel, meetings).
-- [ ] Add a skill selector: one skill from the list, grouped by category, or "any skill". Skills of the category `general` are not in it. When I choose a skill, the level selector starts at the skill's level: I can choose a higher level, not a lower one.
+- [x] Add selectors for level and topic (daily life, data science and work, travel, meetings).
+- [x] Add a skill selector: one skill from the list, grouped by category, or "any skill". Skills of the category `general` are not in it. When I choose a skill, the level selector starts at the skill's level: I can choose a higher level, not a lower one.
 
 **Check answers**
 
@@ -203,7 +203,7 @@ This is the first version you can really study with, and it copies the page I bu
   - wrong = I did not apply the tested rule.
   - If the slip belongs to ANOTHER skill of the list, the tested skill is correct and that skill gets a detected wrong row: "writed" in a past simple exercise = `past_simple` correct + `irregular_verbs` wrong; "have went" in a present perfect exercise = `present_perfect` correct (I used have + a past form) + `irregular_verbs` wrong. When the exercise tests `irregular_verbs` itself, "writed" is simply wrong.
 - [x] `GapGrade` has one optional `detected_mistake`: skill id (from the list, checked in code), error type, mistake text, correction. Spelling is `skill_id = spelling`.
-- [ ] On screen: green = correct (a spelling or capitalization slip adds a small reminder); yellow "Almost" = tested skill correct + a detected grammar mistake; yellow "Partly right" = partial; red = wrong.
+- [x] On screen: green = correct (a spelling or capitalization slip adds a small reminder); yellow "Almost" = tested skill correct + a detected grammar mistake; yellow "Partly right" = partial; red = wrong.
 - [x] Every explanation of a wrong or partial answer has 3 parts, in this order: (a) quote what I wrote, (b) why it is wrong in this sentence, (c) the rule in one line with the correct form. No general grammar text that ignores my answer.
 - [x] The 3 parts are 3 fields in `GapGrade`: `mistake_text`, `why_wrong`, `rule`. `mistake_text` is the same value saved in the `mistake_text` column; Writing (Step 3) uses the same field and the same check.
 - [x] The 3 fields are required when the verdict is wrong or partial, and empty when it is correct. For a correct answer that differs from the expected one, one short line in the optional field `note` confirms it is also right.
@@ -217,11 +217,11 @@ This is the first version you can really study with, and it copies the page I bu
 - [x] `note` (2026-11-16): the code ignores it unless the verdict is correct (wrong and partial have the 3 parts), and does not show it when there is a detected slip (the reminder is enough).
 - [x] A total ceiling per graded answer (2026-11-16): about 4 requests and 20 seconds, counting the quote retry (`RequestBudget` in `llm.py`, shared by the calls).
 - [x] `corrected_sentence` check (2026-11-16): my sentence with each quote replaced by its correction must give `corrected_sentence`. If not, it is only logged (`logs/grading_problems.jsonl`), never retried.
-- [ ] Show the result in green, yellow or red, with the rule and the corrected sentence.
-- [ ] Add a hint button. Save if you used it.
-- [ ] "Report a problem" on the result box (2026-11-16): "the sentence is bad" or "the grade is wrong", with an optional comment. Saved in a new table `problem_reports` (exercise id, submission id, kind, my answer, comment, date; one row per answer and kind). A new table needs no migration: `CREATE TABLE IF NOT EXISTS` adds it to an old database. A sentence reported as bad leaves the stock.
-- [ ] "Skip: this sentence is bad" before answering (2026-11-16): saves a `bad_sentence` report (my answer empty, the submission id reserved for that exercise, no attempt) and takes the sentence out of the stock. A bad sentence is often impossible to answer.
-- [ ] One answer is never saved twice (2026-11-16): the page reserves one `submission_id` per exercise on screen. `grade_gap_answer()` stops before the AI call if it is already saved, and `save_attempts()` checks again under a write lock (`BEGIN IMMEDIATE`). Tests: the same answer twice, and two gradings at the same moment.
+- [x] Show the result in green, yellow or red, with the rule and the corrected sentence.
+- [x] Add a hint button. Save if you used it.
+- [x] "Report a problem" on the result box (2026-11-16): "the sentence is bad" or "the grade is wrong", with an optional comment. Saved in a new table `problem_reports` (exercise id, submission id, kind, my answer, comment, date; one row per answer and kind). A new table needs no migration: `CREATE TABLE IF NOT EXISTS` adds it to an old database. A sentence reported as bad leaves the stock.
+- [x] "Skip: this sentence is bad" before answering (2026-11-16): saves a `bad_sentence` report (my answer empty, the submission id reserved for that exercise, no attempt) and takes the sentence out of the stock. A bad sentence is often impossible to answer.
+- [x] One answer is never saved twice (2026-11-16): the page reserves one `submission_id` per exercise on screen. `grade_gap_answer()` stops before the AI call if it is already saved, and `save_attempts()` checks again under a write lock (`BEGIN IMMEDIATE`). Tests: the same answer twice, and two gradings at the same moment.
 - [x] Save every attempt with `save_attempt()`, including the seconds you took.
 
 **Two more exercise types (same page, same grading code)**
