@@ -393,3 +393,193 @@ class GapExercise(GapExerciseDraft):
             raise ValueError("this skill id cannot be used in fill the gap: " + skill_id)
 
         return skill_id
+
+
+# ---------- AI answers: grading a fill-the-gap answer (Step 2, Part 2) ----------
+
+# The skills whose mistakes are written with the error type "spelling" (and the only ones that may use it).
+SPELLING_SKILL_IDS = ["spelling", "capitalization"]
+
+
+def strip_text(text):
+    # The AI sometimes adds spaces at the ends. An empty text stays empty.
+    return text.strip()
+
+
+class DetectedMistake(BaseModel):
+    """A slip in my answer that belongs to ANOTHER skill than the tested one: "writed" → irregular_verbs.
+
+    One per answer at most. It becomes a "detected" row in the attempts table, with verdict wrong.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # make_gap_grade_schema() replaces this str with an enum of the allowed skill ids, for the AI.
+    skill_id: str
+    error_type: Literal["grammar", "vocabulary", "spelling", "word_order"]
+    mistake_text: str = Field(min_length=1)
+    correction: str = Field(min_length=1)
+
+    @field_validator("mistake_text", "correction")
+    @classmethod
+    def remove_spaces_at_the_ends(cls, text):
+        return strip_text(text)
+
+    @field_validator("skill_id")
+    @classmethod
+    def skill_id_must_be_a_learning_skill(cls, skill_id):
+        # The enum already limits the AI, but the code checks in all cases (CLAUDE.md, rule 2).
+        learning_skill_ids = []
+
+        for skill in skills.get_learning_skills():
+            learning_skill_ids.append(skill["id"])
+
+        if skill_id not in learning_skill_ids:
+            raise ValueError("detected_mistake.skill_id is not an active learning skill: " + skill_id)
+
+        return skill_id
+
+    @model_validator(mode="after")
+    def spelling_error_type_only_for_spelling_skills(self):
+        # "finised" → spelling + error type spelling. "writed" → irregular_verbs + grammar, never spelling.
+        if self.skill_id in SPELLING_SKILL_IDS and self.error_type != "spelling":
+            raise ValueError("the skill " + self.skill_id + " needs the error type spelling")
+
+        if self.skill_id not in SPELLING_SKILL_IDS and self.error_type == "spelling":
+            raise ValueError("the error type spelling is only for the skills spelling and capitalization")
+
+        return self
+
+
+class GapGrade(BaseModel):
+    """The AI's grade of ONE fill-the-gap answer that the code could not check (no exact match).
+
+    Rules (PLAN.md, Step 2, "Check answers"):
+    - wrong or partial: error_type, mistake_text, correction, why_wrong and rule are all required.
+    - correct: those five stay empty.
+    - correct with no detected mistake: note is required. The AI is only called when my answer is NOT the expected
+      or an accepted answer, so a correct verdict always means "also right", and note says why.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # The tested skill. A ClassVar, so the AI never sees it. make_gap_grade_schema() fills it.
+    tested_skill_id: ClassVar[str] = ""
+
+    verdict: Literal["correct", "partial", "wrong"]
+    error_type: Literal["grammar", "vocabulary", "spelling", "word_order"] | None = None
+    mistake_text: str = ""
+    correction: str = ""
+    why_wrong: str = ""
+    rule: str = ""
+    note: str = ""
+    corrected_sentence: str = Field(min_length=1)
+    other_good_answers: list[str] = Field(default_factory=list)
+    memory_tip: str = ""
+    detected_mistake: DetectedMistake | None = None
+
+    @field_validator("mistake_text", "correction", "why_wrong", "rule", "note", "corrected_sentence", "memory_tip")
+    @classmethod
+    def remove_spaces_at_the_ends(cls, text):
+        return strip_text(text)
+
+    @field_validator("corrected_sentence")
+    @classmethod
+    def corrected_sentence_must_have_no_gap(cls, corrected_sentence):
+        if corrected_sentence == "":
+            raise ValueError("corrected_sentence is empty")
+
+        if "___" in corrected_sentence:
+            raise ValueError("corrected_sentence still has the gap: " + corrected_sentence)
+
+        return corrected_sentence
+
+    @field_validator("other_good_answers")
+    @classmethod
+    def other_good_answers_must_have_no_empty_item(cls, other_good_answers):
+        for good_answer in other_good_answers:
+            if good_answer.strip() == "":
+                raise ValueError("other_good_answers has an empty item")
+
+        return other_good_answers
+
+    @model_validator(mode="after")
+    def explanation_fields_must_match_the_verdict(self):
+        explanation_fields = {"error_type": self.error_type or "", "mistake_text": self.mistake_text,
+                              "correction": self.correction, "why_wrong": self.why_wrong, "rule": self.rule}
+
+        if self.verdict == "correct":
+            for field_name, field_value in explanation_fields.items():
+                if field_value != "":
+                    raise ValueError("the verdict is correct, so " + field_name + " must be empty")
+
+            return self
+
+        for field_name, field_value in explanation_fields.items():
+            if field_value == "":
+                raise ValueError("the verdict is " + self.verdict + ", so " + field_name + " is required")
+
+        return self
+
+    @model_validator(mode="after")
+    def note_required_when_also_right(self):
+        # With a detected slip ("finised", "have went") the answer is right WITH a slip: the reminder says it.
+        if self.verdict == "correct" and self.detected_mistake is None and self.note == "":
+            raise ValueError("the verdict is correct but the answer differs from the expected one: note is required")
+
+        return self
+
+    @model_validator(mode="after")
+    def spelling_error_type_only_when_spelling_is_tested(self):
+        # "writed" in a past simple exercise is a grammar mistake, never spelling (PLAN.md, Step 2).
+        # So the MAIN mistake can be of the type spelling only when the exercise tests spelling or capitalization.
+        # A typo in another exercise ("has finised") is a correct verdict + a detected spelling mistake.
+        if self.error_type != "spelling":
+            return self
+
+        if self.tested_skill_id in SPELLING_SKILL_IDS:
+            return self
+
+        raise ValueError("the error type spelling is only for an exercise that tests spelling or capitalization."
+                         + " A typo in another exercise is a detected mistake.")
+
+    @model_validator(mode="after")
+    def detected_mistake_must_be_another_skill(self):
+        if self.detected_mistake is None:
+            return self
+
+        if self.detected_mistake.skill_id == self.tested_skill_id:
+            raise ValueError("detected_mistake is the tested skill itself: " + self.tested_skill_id
+                             + ". A mistake on the tested skill is the verdict, not a detected mistake.")
+
+        return self
+
+
+def get_detectable_skill_ids(tested_skill_id):
+    # The skills a detected mistake can use: every active learning skill except the tested one.
+    detectable_skill_ids = []
+
+    for skill in skills.get_learning_skills():
+        if skill["id"] != tested_skill_id:
+            detectable_skill_ids.append(skill["id"])
+
+    return detectable_skill_ids
+
+
+def make_gap_grade_schema(tested_skill_id):
+    # A copy of GapGrade for ONE tested skill:
+    # - detected_mistake.skill_id becomes an enum of the allowed ids, so the AI cannot invent one;
+    # - the code knows the tested skill (a detected mistake must be another skill).
+    # Different local names on purpose (see make_gap_exercise_draft_schema): no NameError in the class body.
+    # Literal[("a", "b")] is the same as Literal["a", "b"]: this is how a Literal is built from a list.
+    allowed_skill_ids = Literal[tuple(get_detectable_skill_ids(tested_skill_id))]
+    skill_id_for_this_grade = tested_skill_id
+
+    class NewDetectedMistake(DetectedMistake):
+        skill_id: allowed_skill_ids
+
+    class NewGapGrade(GapGrade):
+        tested_skill_id: ClassVar[str] = skill_id_for_this_grade
+        detected_mistake: NewDetectedMistake | None = None
+
+    return NewGapGrade
