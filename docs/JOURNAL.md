@@ -5,6 +5,60 @@ Newest entry at the top. One entry per work session.
 
 ---
 
+## 2026-11-16 - Step 2 Part 1: batches of 5, the first migration, a stricter prompt
+
+**What I did**
+
+- Planned Step 2 in 5 parts (batch creation, answer checking, Practice page, gold file, two more exercise types) and wrote many decisions into PLAN.md before any code.
+- Part 1 (`02ad729`): one request now creates 5 fill-the-gap exercises. Each item is checked alone, bad items are dropped and logged in `logs/dropped_exercises.jsonl`. New column `exercise_type` (first migration, version 1 → 2, with a backup copy). `get_unanswered_exercises()` so saved exercises are used before asking the AI.
+- The `signal` field (`9c36f05`): the AI names the exact words that force the answer; the code checks they are in the sentence and are not the gap or the verb in brackets.
+- Reasoning effort per task (`da9decc`): `llm.ask()` receives `"create"` or `"grade"`, and the values live in `.env` (`AI_REASONING_EFFORT_CREATE=` empty = Gemini's default, `AI_REASONING_EFFORT_GRADE=low`).
+- Removed 8 ambiguous exercises from `data/tutor.db` (with a backup before each cleanup) and kept them in `eval/weak_sentences.md`.
+- Tests: 199 in total (53 new), ruff clean. Pushed to GitHub.
+- Learning note 009 (database migrations) and a new section in 008 (validating each item of a list alone).
+
+**The prompt, measured on real sentences (present simple, A2)**
+
+| Prompt version | What changed | Weak sentences |
+| --- | --- | --- |
+| `gap_exercise_batch@782cdb` | first batch prompt, hints about meaning | 5 of 5 ("this week", "today", "tomorrow", no signal, hard words) |
+| `gap_exercise_batch@ef2ee2` | + one clear signal, vocabulary at the level, self-check | 2 of 5 (one still had "today", one had no signal) |
+| with `signal` + default effort | + the AI must name its signal | not measured yet (Gemini busy) |
+
+- The new hints are about meaning ("the scheduled call opens after a short delay"), not grammar ("the form for he, she, it").
+- Tokens for 5 exercises: 459 prompt + 297 answer, about 1.5× one Step 1 exercise for 5× the exercises.
+
+**Decisions and why**
+
+| Decision | Why |
+| --- | --- |
+| Verdicts: correct = fits (spelling slip = correct + detected spelling); partial = half of the tested rule ("has finish"); wrong = rule not applied | My rule. A partial must mean something precise to count as half in mastery |
+| A slip that belongs to ANOTHER skill = tested skill correct + detected wrong row ("writed" in past simple, "have went" in present perfect → irregular_verbs) | I used the structure, I chose the wrong form of an irregular verb. Shown as yellow "Almost" |
+| Review (Step 7) also brings back a submission where only a detected row is wrong | Otherwise "writed" would never come back |
+| Word order skills: the word_order category + too_enough, phrasal_verbs_separable, have_something_done | With "to be" or articles, word order does not test the skill |
+| Gold file: Claude writes 50 rows with my verdict empty; ≥ 10 of my real mistakes; a `sure` column; Claude's verdicts in a separate file I do not open first | My verdicts must be mine; three graders (me, Claude, Gemini) to compare |
+| Migration, not a new database; backup before any migration; one transaction per step | Practice for later steps, and a failed migration must leave nothing half done |
+| The batch list uses a loose item model; each item is checked alone | One bad item must not lose the 4 good ones |
+| Signal rule written in a GENERAL way, no present simple example in the template | The template is shared by all skills; an example of one tense pushes every skill toward it |
+| When my answer is natural but different from the expected one, the verdict is correct + "also right" note | The prompt cannot remove every ambiguous sentence: the grader is the second protection |
+| Reasoning effort per TASK, values in `.env`, not in code | `reasoning_effort` is a Gemini option: switching provider must stay a settings change |
+| Effort comparison in Part 4: blind, 40 + 40 exercises, same skills and topics | 20 vs 20 is too small with a random AI; blind so I do not judge by the group |
+| Exercise stock: Practice never waits for a live request; refill when below 3 | Today 8 of 12 requests were 503. I want to keep practising when Gemini is busy |
+
+**Problems and how I solved them**
+
+- The first batch prompt wrote sentences where another tense was natural ("this week", "today", "tomorrow"). Fixed with the signal rule, the vocabulary rule and the self-check (5/5 → 2/5 weak), then the `signal` field.
+- The new `exercise_type` check (a Practice exercise needs a type) broke 2 old tests that created exercises without one: updated them.
+- `GapExerciseDraft` is shared with the Step 1 prompt: a required `signal` would break it, so the Step 1 prompt asks for it too. `scripts/part4_experiments.py` now says it is a record that will not run again.
+- Gemini was busy: the first demo needed 3 requests (2 × 503, then OK), and the last 2 demo runs failed with 3 × 503 each. The retry code behaved exactly as planned (2 s, 4 s, stop).
+
+**Open questions / next**
+
+- First thing next session: run the batch demo (signal + default effort) and count the weak sentences.
+- Then Part 2: answer checking, `GapGrade` with `detected_mistake`, saving attempts, and the exercise stock.
+
+---
+
 ## 2026-11-16 - Step 1 done: the first real exercise in the database (Part 5)
 
 **What I did**

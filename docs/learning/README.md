@@ -20,7 +20,8 @@ Each note says what it is, why I needed it, and how I used it here.
 | 005 | [SQLite](005-sqlite.md) | 1 | 2026-11-16 |
 | 006 | [Fakes in tests with monkeypatch](006-fakes-and-monkeypatch.md) | 1 | 2026-11-16 |
 | 007 | [Retries with a time budget](007-retries-with-a-time-budget.md) | 1 | 2026-11-16 |
-| 008 | [A schema factory with a ClassVar](008-schema-factory-with-classvar.md) | 1 | 2026-11-16 |
+| 008 | [A schema factory with a ClassVar](008-schema-factory-with-classvar.md) (+ validating each item of a list alone) | 1, 2 | 2026-11-16 |
+| 009 | [Database migrations (PRAGMA user_version)](009-database-migrations.md) | 2 | 2026-11-16 |
 
 ## Notes I expect to write
 
