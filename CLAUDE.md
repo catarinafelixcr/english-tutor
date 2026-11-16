@@ -28,7 +28,7 @@ I want to remember, months from now, what I did and why. Keep these updated:
   `docs/learning/_template.md` to a new numbered file
   (example: `004-pydantic-schemas.md`), fill it in simple English with a real
   example from THIS project, and add one line to `docs/learning/README.md`.
-  Leave the section "In my own words" empty: I write that part myself.
+  Do not add an "In my own words" section (follow `_template.md` only).
 - `docs/PROGRESS.md` — tick tasks when they are finished.
 
 Never finish a session without updating JOURNAL.md.
@@ -44,7 +44,7 @@ Never finish a session without updating JOURNAL.md.
 
 - Run the app: `streamlit run app.py`
 - Run tests: `pytest`
-- Check style: `ruff check .`
+- Check style: `ruff check .` (run `ruff check --fix .` after Claude creates a file: Claude's write tool leaves no final newline)
 - Test the AI grader: `python eval/run_eval.py`
 
 ## Project structure
@@ -54,7 +54,7 @@ app.py            menu and page routing
 pages/            one file per section (home, learn, practice, writing, ...)
 tutor/llm.py      the ONLY file that talks to the AI
 tutor/prompts.py  all prompt texts
-tutor/schemas.py  Pydantic models for AI answers
+tutor/schemas.py  Pydantic models: AI answers and database records (Attempt)
 tutor/db.py       SQLite tables and queries
 tutor/skills.py   the fixed skill list
 tutor/mastery.py  weak/strong logic and recommendations

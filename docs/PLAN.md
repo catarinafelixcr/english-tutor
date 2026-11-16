@@ -118,7 +118,8 @@ This step has no screen to show, but every later step depends on it.
 - [ ] Test if the schema can limit `skill_id` to an enum of the active skill ids. If Gemini accepts it, use it. Keep the code validation in all cases.
 - [ ] On a rate-limit error (HTTP 429): if the local counter already reached `AI_DAILY_LIMIT`, or the error says it is the daily quota, stop at once with a clear message. Otherwise wait (about 2s, then 4s) and retry at most 2 times.
 - [ ] 429 experiment: send 6 tiny requests in one minute to `gemini-3.8-flash` (5 RPM, its own quota, not Lite's) to see the real error body. Write what we learn in docs/JOURNAL.md.
-- [ ] Save every request to `logs/ai_log.jsonl` (one JSON per line): UTC time, model asked, model returned, prompt version, prompt, answer, full error body. Never the API key, and a test proves it. `logs/` is in `.gitignore`.
+- [ ] Save every request to `logs/ai_log.jsonl` (one JSON per line): UTC time, model asked (from `.env`), model returned (from Gemini's answer; if different, ignoring a `models/` prefix, mark it as a warning), prompt version, prompt, answer, full error body. Never the API key, and a test proves it. `logs/` is in `.gitignore`.
+- [ ] The `model` column in `exercises` and `attempts` saves the model returned, because that model really did the work.
 - [ ] Write `count_requests_today(model)`: requests made today for one model, from the log. The day starts at midnight `America/Los_Angeles` (Gemini resets RPD then), using `zoneinfo` + `tzdata`. It is an estimate: it does not see requests made outside this app.
 - [ ] Read the daily limit from `.env`: `AI_DAILY_LIMIT=500`, the real number from the AI Studio rate limit page for `gemini-3.5-flash-lite`.
 
