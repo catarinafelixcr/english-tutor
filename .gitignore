@@ -1,0 +1,36 @@
+# ---------- Secrets and personal data (never in git) ----------
+.env
+data/
+logs/
+
+
+# ---------- Virtual environment ----------
+.venv/
+venv/
+
+
+# ---------- Python cache and build files ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+
+# ---------- Tools ----------
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+
+# ---------- Streamlit local secrets ----------
+.streamlit/secrets.toml
+
+
+# ---------- Editors and operating system ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

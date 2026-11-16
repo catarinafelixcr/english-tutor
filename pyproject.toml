@@ -1,0 +1,12 @@
+# Settings for ruff, the tool that checks the code for problems.
+# We use only "ruff check" (find problems), not "ruff format" (rewrite layout).
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+
+[tool.ruff.lint]
+# E, W = basic style errors   F = real bugs (unused imports, undefined names)
+# I = sorted imports          N = standard names   RET = early-return style
+select = ["E", "W", "F", "I", "N", "RET"]
