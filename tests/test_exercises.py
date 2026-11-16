@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from tutor import db, exercises, llm, skills
+from tutor.schemas import Exercise
 
 
 @pytest.fixture
@@ -23,10 +24,12 @@ class FakeAsk:
         self.planned_answer = planned_answer
         self.prompts_received = []
         self.tasks_received = []
+        self.budgets_received = []
 
-    def ask(self, prompt_text, prompt_version, schema, task):
+    def ask(self, prompt_text, prompt_version, schema, task, budget=None, settings=None):
         self.prompts_received.append(prompt_text)
         self.tasks_received.append(task)
+        self.budgets_received.append(budget)
         validated_answer = schema(**self.planned_answer)
 
         return validated_answer, "fake-test-model"
@@ -289,3 +292,136 @@ def test_create_gap_exercises_checks_skill_and_level_before_asking(database_path
         exercises.create_gap_exercises(skill_id, level, "travel", database_path)
 
     assert fake_ask.prompts_received == []
+
+
+# ---------- the exercise stock ----------
+
+class BusyAsk:
+    """Replaces llm.ask() when Gemini is busy: every request fails, like a 503 after the retries."""
+
+    def __init__(self):
+        self.budgets_received = []
+
+    def ask(self, prompt_text, prompt_version, schema, task, budget=None, settings=None):
+        self.budgets_received.append(budget)
+        raise llm.AIUnavailableError("The AI is busy. Try again in a minute.")
+
+
+def install_busy_ask(monkeypatch):
+    busy_ask = BusyAsk()
+    monkeypatch.setattr(llm, "ask", busy_ask.ask)
+
+    return busy_ask
+
+
+def fill_stock(database_path, skill_id, topic, sentence_count):
+    # Unanswered exercises saved directly, without the AI. Returns their ids, oldest first.
+    exercise_ids = []
+
+    for sentence_number in range(sentence_count):
+        exercise = Exercise(section="practice", exercise_type="gap", skill_id=skill_id, level="A2", topic=topic,
+                            prompt_text="Stock sentence " + str(sentence_number) + ": I ___ fine.",
+                            expected_answer="am")
+        exercise_ids.append(db.save_exercise(exercise, database_path))
+
+    return exercise_ids
+
+
+def test_a_full_stock_gives_the_oldest_exercise_with_no_ai_call(database_path, monkeypatch):
+    busy_ask = install_busy_ask(monkeypatch)
+    exercise_ids = fill_stock(database_path, "to_be", "travel", 3)
+
+    exercise_id, exercise, notice = exercises.get_next_gap_exercise("A2", "to_be", "travel", database_path)
+
+    assert exercise_id == exercise_ids[0]
+    assert notice == ""
+    assert busy_ask.budgets_received == []
+
+
+def test_an_empty_stock_is_refilled_with_a_normal_budget(database_path, monkeypatch, dropped_log_path):
+    fake_ask = install_fake_batch_ask(monkeypatch, FIVE_GOOD_SENTENCES)
+
+    exercise_id, exercise, notice = exercises.get_next_gap_exercise("A2", "to_be", "travel", database_path)
+
+    assert exercise.prompt_text == FIVE_GOOD_SENTENCES[0]
+    assert notice == ""
+    assert fake_ask.budgets_received[0].busy_retries is True
+    assert len(db.get_unanswered_exercises("gap", "A2", "to_be", "travel", database_path)) == 5
+
+
+def test_a_low_stock_is_refilled_fail_fast_and_the_oldest_comes_first(database_path, monkeypatch, dropped_log_path):
+    fake_ask = install_fake_batch_ask(monkeypatch, FIVE_GOOD_SENTENCES)
+    exercise_ids = fill_stock(database_path, "to_be", "travel", 2)
+
+    exercise_id, exercise, notice = exercises.get_next_gap_exercise("A2", "to_be", "travel", database_path)
+
+    assert exercise_id == exercise_ids[0]
+    assert notice == ""
+    assert fake_ask.budgets_received[0].busy_retries is False
+    assert len(db.get_unanswered_exercises("gap", "A2", "to_be", "travel", database_path)) == 7
+
+
+def test_a_busy_ai_with_a_low_stock_gives_a_notice_not_an_error(database_path, monkeypatch):
+    busy_ask = install_busy_ask(monkeypatch)
+    exercise_ids = fill_stock(database_path, "to_be", "travel", 1)
+
+    exercise_id, exercise, notice = exercises.get_next_gap_exercise("A2", "to_be", "travel", database_path)
+
+    assert exercise_id == exercise_ids[0]
+    assert notice == exercises.BUSY_STOCK_NOTICE
+    assert busy_ask.budgets_received[0].busy_retries is False
+
+
+def test_a_busy_ai_with_an_empty_stock_raises_the_error(database_path, monkeypatch):
+    busy_ask = install_busy_ask(monkeypatch)
+
+    with pytest.raises(llm.AIUnavailableError):
+        exercises.get_next_gap_exercise("A2", "to_be", "travel", database_path)
+
+    assert busy_ask.budgets_received[0].busy_retries is True
+
+
+def test_the_topic_is_a_filter(database_path, monkeypatch, dropped_log_path):
+    # Travel exercises in the stock do not count for "meetings": the stock is empty, so a meetings batch is made.
+    fake_ask = install_fake_batch_ask(monkeypatch, FIVE_GOOD_SENTENCES)
+    fill_stock(database_path, "to_be", "travel", 3)
+
+    exercise_id, exercise, notice = exercises.get_next_gap_exercise("A2", "to_be", "meetings", database_path)
+
+    assert exercise.topic == "meetings"
+    assert "Topic: meetings" in fake_ask.prompts_received[0]
+
+
+def pick_the_last_item(items):
+    return items[-1]
+
+
+def test_any_skill_picks_a_random_exercise_not_the_oldest(database_path, monkeypatch):
+    install_busy_ask(monkeypatch)
+    fill_stock(database_path, "to_be", "travel", 2)
+    newest_exercise_ids = fill_stock(database_path, "present_simple", "travel", 2)
+    monkeypatch.setattr(exercises.random, "choice", pick_the_last_item)
+
+    exercise_id, exercise, notice = exercises.get_next_gap_exercise("A2", None, None, database_path)
+
+    assert exercise_id == newest_exercise_ids[-1]
+
+
+def test_any_skill_and_any_topic_refill_one_random_skill_and_topic(database_path, monkeypatch, dropped_log_path):
+    fake_ask = install_fake_batch_ask(monkeypatch, FIVE_GOOD_SENTENCES)
+    monkeypatch.setattr(exercises, "choose_random_skill", return_the_to_be_skill)
+    monkeypatch.setattr(exercises, "choose_random_topic", return_the_travel_topic)
+
+    exercise_id, exercise, notice = exercises.get_next_gap_exercise("A2", None, None, database_path)
+
+    assert exercise.skill_id == "to_be"
+    assert exercise.topic == "travel"
+    assert len(fake_ask.prompts_received) == 1
+
+
+def return_the_to_be_skill(level):
+    return skills.get_skill("to_be")
+
+
+def return_the_travel_topic():
+    return "travel"

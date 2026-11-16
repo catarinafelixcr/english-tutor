@@ -115,10 +115,11 @@ def log_dropped_exercises(rejected_items, skill_id, prompt_version, model_return
             log_file.write(json.dumps(log_line, ensure_ascii=False) + "\n")
 
 
-def create_gap_exercises(skill_id, level, topic, database_path=db.DEFAULT_DATABASE_PATH):
+def create_gap_exercises(skill_id, level, topic, database_path=db.DEFAULT_DATABASE_PATH, budget=None):
     # ONE request for BATCH_SIZE sentences on THIS skill, each about a different sub-topic of the topic.
     # Saves the valid ones and drops (and logs) the bad ones. Returns a list of (Exercise, new exercise id).
     # Raises an llm.AIError if the AI fails, or if no exercise of the batch is valid twice in a row.
+    # budget: an llm.RequestBudget (for example a fail-fast one for a refill), or None for a normal one.
     skill = check_gap_skill_and_level(skill_id, level)
 
     # random.sample: BATCH_SIZE DIFFERENT sub-topics, in random order.
@@ -129,7 +130,7 @@ def create_gap_exercises(skill_id, level, topic, database_path=db.DEFAULT_DATABA
     prompt_text, prompt_version = prompts.build_gap_exercise_batch_prompt(level, topic, sub_topics, skill,
                                                                           recent_sentences)
     batch_schema = make_gap_exercise_batch_schema(used_sentences)
-    batch, model_returned = llm.ask(prompt_text, prompt_version, batch_schema, "create")
+    batch, model_returned = llm.ask(prompt_text, prompt_version, batch_schema, "create", budget)
 
     # The batch schema already checked that at least one item is valid. Now we split the good from the bad.
     items_asked_for = batch.exercises[:BATCH_SIZE]
@@ -156,3 +157,65 @@ def create_gap_exercises(skill_id, level, topic, database_path=db.DEFAULT_DATABA
         saved_exercises.append((exercise, exercise_id))
 
     return saved_exercises
+
+
+# ---------- the exercise stock (Step 2, Part 2) ----------
+
+# Below this many unanswered exercises, a new batch is created (PLAN.md, "Exercise stock").
+MINIMUM_STOCK = 3
+
+# Shown on the page when the AI was busy but the stock still had an exercise. A notice, not an error.
+BUSY_STOCK_NOTICE = "The AI is busy right now, so you are practising with your saved sentences."
+
+
+def refill_stock(skill_id, level, topic, stock_is_empty, database_path):
+    # One batch. With exercises still in the stock, a busy AI stops at once (no 2 s + 4 s waits):
+    # I keep practising instead of waiting. With an EMPTY stock, the normal retries are worth the wait.
+    # skill_id or topic None = "any": the code chooses one at random for this batch.
+    if skill_id is None:
+        skill_id = choose_random_skill(level)["id"]
+
+    if topic is None:
+        topic = choose_random_topic()
+
+    if stock_is_empty:
+        budget = llm.make_normal_budget()
+    else:
+        budget = llm.make_fail_fast_budget()
+
+    create_gap_exercises(skill_id, level, topic, database_path, budget)
+
+
+def choose_from_stock(stock, skill_id):
+    # One skill: the oldest first. Any skill: a random one, so I do not get 5 sentences on one skill in a row.
+    if skill_id is not None:
+        return stock[0]
+
+    return random.choice(stock)
+
+
+def get_next_gap_exercise(level, skill_id=None, topic=None, database_path=db.DEFAULT_DATABASE_PATH):
+    # The next fill-the-gap exercise for the Practice page. Returns (exercise id, Exercise, notice).
+    # notice is "" normally, or BUSY_STOCK_NOTICE when the AI was busy and the exercise came from the stock.
+    # skill_id and topic are filters (None = any skill, any topic). Practice never depends on a live request
+    # while the stock has exercises: only an EMPTY stock + an AI error raises the llm.AIError (the page shows
+    # it with a "Try again" button).
+    stock = db.get_unanswered_exercises("gap", level, skill_id, topic, database_path)
+    notice = ""
+
+    if len(stock) < MINIMUM_STOCK:
+        stock_is_empty = len(stock) == 0
+
+        try:
+            refill_stock(skill_id, level, topic, stock_is_empty, database_path)
+        except llm.AIError:
+            if stock_is_empty:
+                raise
+
+            notice = BUSY_STOCK_NOTICE
+
+        stock = db.get_unanswered_exercises("gap", level, skill_id, topic, database_path)
+
+    exercise_id, exercise = choose_from_stock(stock, skill_id)
+
+    return exercise_id, exercise, notice
