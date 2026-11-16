@@ -9,7 +9,7 @@ Tick a task when it is finished. Write the date when a step is done.
 - [ ] GitHub repo created (README, MIT license, Python .gitignore)
 - [x] Virtual environment created
 - [x] requirements.txt written and installed
-- [ ] Gemini API key created and tested
+- [x] Gemini API key created and tested (model gemini-3.5-flash-lite: 15 RPM, 500 RPD)
 - [ ] .env created, .env.example committed, .env and data/ in .gitignore
 - [x] Folders created (pages, tutor, data, tests, eval, docs)
 - [x] app.py shows the menu with one empty page per section

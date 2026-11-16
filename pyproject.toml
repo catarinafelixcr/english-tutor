@@ -10,3 +10,7 @@ target-version = "py311"
 # E, W = basic style errors   F = real bugs (unused imports, undefined names)
 # I = sorted imports          N = standard names   RET = early-return style
 select = ["E", "W", "F", "I", "N", "RET"]
+
+# RET504 wants "return {...}" instead of "settings = {...}" then "return settings".
+# I prefer a descriptive name before the return: it is clearer and easier to debug.
+ignore = ["RET504"]
