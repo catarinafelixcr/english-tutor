@@ -117,6 +117,8 @@ This step has no screen to show, but every later step depends on it.
 - [ ] Ask for structured JSON output with the Pydantic schema, then validate the answer. On a validation error, retry once.
 - [ ] On a rate-limit error (HTTP 429), wait and retry up to 3 times, then show a friendly message.
 - [ ] Save every prompt and answer to a log file, so you can debug bad AI answers later.
+- [ ] Save the real model name returned by the API with each answer, to see if the model changes.
+- [ ] Write `count_requests_today()`: the number of AI requests made today, from the log. Read the daily limit from `.env` (`AI_DAILY_LIMIT=500`).
 
 **Skill list (`tutor/skills.py`)**
 
@@ -215,6 +217,7 @@ This step adds the part you asked for: the app tells you what to study and teach
 
 - [ ] Show today's plan: reviews due (ready for Step 7), your weakest skill with a "Study now" button, and the daily goal (for example 15 answers).
 - [ ] Show the streak: days in a row with the goal reached.
+- [ ] Show the AI usage of today in the menu: "AI today: 37 / 500 requests". Turn it orange near the limit.
 - [ ] Make Practice choose skills in a smart way: about 60% weak skills, 30% learning, 10% new or strong.
 
 **Done when:** you answer verb to be wrong 6 times on purpose, the app tells you to study it, the lesson uses your own mistakes, and Practice gives you more sentences about it.
