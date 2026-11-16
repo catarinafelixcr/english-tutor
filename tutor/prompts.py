@@ -7,6 +7,8 @@ the same template always has the same version, and changing one word gives a new
 
 import hashlib
 
+from tutor import skills
+
 # ---------- prompt versions ----------
 
 def make_prompt_version(prompt_name, template):
@@ -156,5 +158,119 @@ def build_gap_exercise_batch_prompt(level, topic, sub_topics, skill, sentences_t
 
     prompt_version = make_prompt_version(GAP_EXERCISE_BATCH_PROMPT_NAME,
                                          GAP_EXERCISE_BATCH_TEMPLATE + TAG_WHEN_LINE_TEMPLATE)
+
+    return prompt_text, prompt_version
+
+
+# ---------- fill the gap: grade one answer (Step 2, Part 2) ----------
+
+GAP_GRADE_PROMPT_NAME = "gap_grade"
+
+# English until Step 4 adds the selector (Portuguese or English).
+DEFAULT_EXPLANATION_LANGUAGE = "English"
+
+# The AI is called ONLY when the code found no match, so the answer is never the expected or an accepted one.
+# The rules for the verdicts, the slips and the 3-part explanation come from PLAN.md, Step 2, "Check answers".
+# The schema gives the AI the allowed skill ids (an enum). The tag_when lines help it choose between skills
+# that are often confused (my answer to question 2, 2026-11-16).
+GAP_GRADE_TEMPLATE = """You are an English teacher. The learner is a Portuguese speaker from Portugal.
+
+Grade the learner's answer to one fill-the-gap exercise.
+
+Exercise: {sentence}
+Expected answer: {expected_answer}
+Other accepted answers: {accepted_answers}
+The learner's answer: {your_answer}
+The learner's full sentence: {sentence_with_answer}
+
+The exercise tests this skill: {skill_name}
+Typical mistake of Portuguese speakers with this skill: {typical_mistake}
+{tag_when_line}
+The learner's answer is NOT the expected answer and NOT an accepted answer. Decide if it still works.
+Accept any answer a native speaker would naturally use in this sentence.
+
+Verdict, about the tested skill only:
+- correct: the answer is natural in this sentence and uses the tested skill correctly. If the sentence also
+  allows another form (for example another tense), and the learner's form is natural, it is correct.
+- partial: the learner applied only half of the tested rule and did not try the other half. Example for the
+  present perfect: "has finish" (has, but no past participle).
+- wrong: the learner did not apply the tested rule, or the answer makes no sense in the sentence.
+
+Slips of ANOTHER skill go in detected_mistake (at most one; leave it empty when there is none):
+- A word with wrong letters that is otherwise right ("finised") is a spelling slip: skill_id spelling, error
+  type spelling. The verdict is still about the tested skill.
+- A wrong form of an irregular verb ("writed", "have went") is a grammar mistake, never spelling. When the
+  exercise does not test irregular verbs, the verdict is about the tested skill (for example "have went" in a
+  present perfect exercise is correct: the learner used have + a past form) and detected_mistake has skill_id
+  irregular_verbs and error type grammar. When the exercise tests irregular verbs, "writed" is simply wrong.
+- detected_mistake is never the tested skill: a mistake on the tested skill is the verdict.
+- These skills are often confused. Use these lines to choose the skill_id:
+{detectable_tag_when_lines}
+
+Fields:
+- When the verdict is wrong or partial, fill error_type, mistake_text, correction, why_wrong and rule:
+  - mistake_text: the wrong words, copied exactly from the learner's full sentence. Do not change them.
+  - correction: the right words that replace mistake_text.
+  - why_wrong: why these words do not work in THIS sentence. Name the words of the sentence that show it.
+    Talk to the learner ("You wrote ..."). If a Portuguese structure explains the mistake, say it briefly.
+  - rule: the rule in one line, with the correct form.
+  - error_type: grammar, vocabulary or word_order. Use spelling only when the exercise tests spelling.
+- When the verdict is correct, leave error_type, mistake_text, correction, why_wrong and rule empty. If there is
+  no detected_mistake, write in note one short line that says the answer is also right, and why.
+- detected_mistake.mistake_text: the wrong words, copied exactly from the learner's full sentence.
+  detected_mistake.correction: the right words.
+- corrected_sentence: the learner's full sentence with ONLY the corrections of mistake_text and detected_mistake.
+  Change nothing else. For a correct answer with no slip, copy the learner's full sentence.
+- other_good_answers: other answers that fit the gap. An empty list if there are none.
+- memory_tip: a short way to remember the rule. It can be empty for a correct answer.
+
+Write why_wrong, rule, note and memory_tip in {explanation_language}. Never translate mistake_text, correction or
+corrected_sentence: they stay exactly in English.
+Tone: kind and encouraging, but the verdict stays strict. Never call a wrong answer correct to be kind.
+"""
+
+# One line per skill with a tag_when, except the tested skill. Part of the version hash too.
+DETECTABLE_TAG_WHEN_LINE_TEMPLATE = "- {skill_id}: {tag_when}"
+
+
+def make_detectable_tag_when_lines(tested_skill_id):
+    tag_when_lines = []
+
+    for skill in skills.get_learning_skills():
+        if skill["id"] == tested_skill_id:
+            continue
+
+        if "tag_when" not in skill:
+            continue
+
+        tag_when_lines.append(DETECTABLE_TAG_WHEN_LINE_TEMPLATE.format(skill_id=skill["id"],
+                                                                       tag_when=skill["tag_when"]))
+
+    return "\n".join(tag_when_lines)
+
+
+def make_accepted_answers_text(accepted_answers):
+    if len(accepted_answers) == 0:
+        return "none"
+
+    return ", ".join(accepted_answers)
+
+
+def build_gap_grade_prompt(exercise, your_answer, sentence_with_answer, explanation_language):
+    # Returns the final prompt text and its version.
+    # sentence_with_answer comes from grading.build_sentence_with_answer() (the caller builds it, so this file
+    # does not import grading.py, which imports this file).
+    skill = skills.get_skill(exercise.skill_id)
+
+    prompt_text = GAP_GRADE_TEMPLATE.format(
+        sentence=exercise.prompt_text, expected_answer=exercise.expected_answer,
+        accepted_answers=make_accepted_answers_text(exercise.accepted_answers), your_answer=your_answer,
+        sentence_with_answer=sentence_with_answer, skill_name=skill["name"], typical_mistake=skill["typical_mistake"],
+        tag_when_line=make_tag_when_line(skill), detectable_tag_when_lines=make_detectable_tag_when_lines(skill["id"]),
+        explanation_language=explanation_language,
+    )
+
+    all_templates = GAP_GRADE_TEMPLATE + TAG_WHEN_LINE_TEMPLATE + DETECTABLE_TAG_WHEN_LINE_TEMPLATE
+    prompt_version = make_prompt_version(GAP_GRADE_PROMPT_NAME, all_templates)
 
     return prompt_text, prompt_version

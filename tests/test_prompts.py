@@ -3,6 +3,7 @@
 import re
 
 from tutor import prompts, skills
+from tutor.schemas import Exercise
 
 
 def build_prompt_for(skill_id, sentences_to_avoid):
@@ -178,6 +179,87 @@ def test_the_batch_prompt_has_no_other_skill_ids_and_no_empty_places():
     for skill_id in skills.get_fill_the_gap_skill_ids():
         if "_" in skill_id:
             assert skill_id not in prompt_text, skill_id + " should not be in the prompt"
+
+    assert "{" not in prompt_text
+    assert "}" not in prompt_text
+
+
+# ---------- the grader prompt (Step 2, Part 2) ----------
+
+def make_exercise(skill_id, sentence, expected_answer, accepted_answers):
+    return Exercise(section="practice", exercise_type="gap", skill_id=skill_id, level="A2", prompt_text=sentence,
+                    expected_answer=expected_answer, accepted_answers=accepted_answers)
+
+
+def build_grade_prompt_for(skill_id, accepted_answers, explanation_language):
+    exercise = make_exercise(skill_id, "She has ___ (finish) the report already.", "finished", accepted_answers)
+
+    return prompts.build_gap_grade_prompt(exercise, "finish", "She has finish the report already.",
+                                          explanation_language)
+
+
+def test_the_grade_prompt_has_the_exercise_my_answer_and_my_full_sentence():
+    prompt_text, prompt_version = build_grade_prompt_for("present_perfect", [], "English")
+
+    assert "Exercise: She has ___ (finish) the report already." in prompt_text
+    assert "Expected answer: finished" in prompt_text
+    assert "The learner's answer: finish" in prompt_text
+    assert "The learner's full sentence: She has finish the report already." in prompt_text
+    assert skills.get_skill("present_perfect")["name"] in prompt_text
+
+
+def test_the_grade_prompt_lists_the_accepted_answers_or_none():
+    prompt_without_accepted, prompt_version = build_grade_prompt_for("present_perfect", [], "English")
+    prompt_with_accepted, prompt_version = build_grade_prompt_for("present_perfect", ["completed", "done"], "English")
+
+    assert "Other accepted answers: none" in prompt_without_accepted
+    assert "Other accepted answers: completed, done" in prompt_with_accepted
+
+
+def test_the_grade_prompt_has_the_tag_when_lines_of_the_other_skills():
+    prompt_text, prompt_version = build_grade_prompt_for("present_perfect", [], "English")
+
+    assert "- irregular_verbs: " + skills.get_skill("irregular_verbs")["tag_when"] in prompt_text
+    assert "- spelling: " + skills.get_skill("spelling")["tag_when"] in prompt_text
+
+
+def test_the_tested_skill_is_not_in_the_detectable_lines():
+    # irregular_verbs is tested: its tag_when is the tested skill's line, not a "- irregular_verbs:" line.
+    tag_when_lines = prompts.make_detectable_tag_when_lines("irregular_verbs")
+
+    assert "- irregular_verbs:" not in tag_when_lines
+    assert "- spelling:" in tag_when_lines
+
+
+def test_only_learning_skills_with_a_tag_when_are_listed():
+    tag_when_lines = prompts.make_detectable_tag_when_lines("to_be").split("\n")
+    expected_line_count = 0
+
+    for skill in skills.get_learning_skills():
+        if "tag_when" in skill:
+            expected_line_count = expected_line_count + 1
+
+    assert len(tag_when_lines) == expected_line_count
+
+
+def test_the_grade_prompt_uses_the_explanation_language():
+    prompt_text, prompt_version = build_grade_prompt_for("present_perfect", [], "Portuguese (Portugal)")
+
+    assert "in Portuguese (Portugal)." in prompt_text
+    assert prompts.DEFAULT_EXPLANATION_LANGUAGE == "English"
+
+
+def test_the_grade_prompt_version_does_not_depend_on_the_values():
+    first_prompt_text, first_version = build_grade_prompt_for("present_perfect", [], "English")
+    second_prompt_text, second_version = build_grade_prompt_for("irregular_verbs", ["done"], "Portuguese")
+
+    assert first_prompt_text != second_prompt_text
+    assert first_version == second_version
+    assert first_version.startswith("gap_grade@")
+
+
+def test_the_grade_prompt_has_no_place_left_empty():
+    prompt_text, prompt_version = build_grade_prompt_for("present_perfect", [], "English")
 
     assert "{" not in prompt_text
     assert "}" not in prompt_text
