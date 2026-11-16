@@ -21,7 +21,15 @@ Done on: 2026-11-16
 
 ## Step 1 – Foundation
 
-Not started.
+- [x] Part 1: skill list (`tutor/skills.py`, 53 skills) with tests
+- [ ] Part 2: database (`tutor/db.py`) with tests
+- [ ] Part 3: `GapExercise` schema and first prompt
+- [ ] Part 4: AI engine (`tutor/llm.py`), 429 experiment, request counter
+- [ ] Part 5: demo script (`scripts/step1_demo.py`)
+
+Done when: a small script asks the AI for one fill-the-gap sentence, gets a valid object with a skill id from your list, and saves it in the database.
+
+Done on:
 
 ## Step 2 – Practice
 
