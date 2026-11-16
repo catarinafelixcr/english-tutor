@@ -261,12 +261,24 @@ def test_the_grade_prompt_version_does_not_depend_on_the_values():
 def test_the_quote_retry_note_names_the_bad_quotes_and_my_sentence():
     prompt_text, prompt_version = build_grade_prompt_for("present_perfect", [], "English")
 
-    retry_prompt_text = prompts.add_quote_retry_note(prompt_text, ["have finish"],
-                                                     "She has finish the report already.")
+    retry_prompt_text = prompts.add_retry_notes(prompt_text, ["have finish"], False,
+                                                "She has finish the report already.")
 
     assert retry_prompt_text.startswith(prompt_text)
     assert "\"have finish\"" in retry_prompt_text
     assert "exactly from this sentence: She has finish the report already." in retry_prompt_text
+    assert prompts.GAP_GRADE_SAME_WORDS_RETRY_NOTE not in retry_prompt_text
+
+
+def test_the_same_words_note_is_added_alone_or_with_the_quote_note():
+    prompt_text, prompt_version = build_grade_prompt_for("present_perfect", [], "English")
+
+    same_words_only = prompts.add_retry_notes(prompt_text, [], True, "She has writed the report already.")
+    both_notes = prompts.add_retry_notes(prompt_text, ["wrote"], True, "She has writed the report already.")
+
+    assert same_words_only == prompt_text + prompts.GAP_GRADE_SAME_WORDS_RETRY_NOTE
+    assert "\"wrote\"" in both_notes
+    assert both_notes.endswith(prompts.GAP_GRADE_SAME_WORDS_RETRY_NOTE)
 
 
 def test_the_grade_prompt_has_no_place_left_empty():

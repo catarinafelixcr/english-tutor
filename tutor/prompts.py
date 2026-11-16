@@ -203,7 +203,10 @@ Slips of ANOTHER skill go in detected_mistake (at most one; leave it empty when 
   exercise does not test irregular verbs, the verdict is about the tested skill (for example "have went" in a
   present perfect exercise is correct: the learner used have + a past form) and detected_mistake has skill_id
   irregular_verbs and error type grammar. When the exercise tests irregular verbs, "writed" is simply wrong.
+- Example: "She has writed the report." in a present perfect exercise: the verdict is correct (has + a past form),
+  and detected_mistake is irregular_verbs, "writed" → "written". It is NOT a wrong verdict.
 - detected_mistake is never the tested skill: a mistake on the tested skill is the verdict.
+- One slip counts against ONE skill only: detected_mistake never quotes the same words as mistake_text.
 - These skills are often confused. Use these lines to choose the skill_id:
 {detectable_tag_when_lines}
 
@@ -232,10 +235,17 @@ Tone: kind and encouraging, but the verdict stays strict. Never call a wrong ans
 # One line per skill with a tag_when, except the tested skill. Part of the version hash too.
 DETECTABLE_TAG_WHEN_LINE_TEMPLATE = "- {skill_id}: {tag_when}"
 
-# Added at the end of the prompt for the ONE retry after bad quotes. Part of the version hash too.
+# Added at the end of the prompt for the ONE retry, one note per problem found. Part of the version hash too.
 GAP_GRADE_QUOTE_RETRY_NOTE_TEMPLATE = """
 Your previous answer quoted words that are not in the learner's full sentence: {bad_quotes}.
 Copy mistake_text and detected_mistake.mistake_text exactly from this sentence: {sentence_with_answer}
+"""
+
+GAP_GRADE_SAME_WORDS_RETRY_NOTE = """
+Your previous answer quoted the same words in mistake_text and in detected_mistake, so one slip counted against
+two skills. Decide which skill the slip belongs to. If it is a slip of another skill (for example a wrong
+irregular form after a correct have/has), the verdict is about the tested skill and the slip goes only in
+detected_mistake. If it is the tested skill's mistake, leave detected_mistake empty.
 """
 
 
@@ -277,20 +287,28 @@ def build_gap_grade_prompt(exercise, your_answer, sentence_with_answer, explanat
     )
 
     all_templates = (GAP_GRADE_TEMPLATE + TAG_WHEN_LINE_TEMPLATE + DETECTABLE_TAG_WHEN_LINE_TEMPLATE
-                     + GAP_GRADE_QUOTE_RETRY_NOTE_TEMPLATE)
+                     + GAP_GRADE_QUOTE_RETRY_NOTE_TEMPLATE + GAP_GRADE_SAME_WORDS_RETRY_NOTE)
     prompt_version = make_prompt_version(GAP_GRADE_PROMPT_NAME, all_templates)
 
     return prompt_text, prompt_version
 
 
-def add_quote_retry_note(prompt_text, bad_quotes, sentence_with_answer):
-    # bad_quotes: the wrong quotes themselves, for example ["have finish"]. The version does not change.
-    quoted_texts = []
+def add_retry_notes(prompt_text, bad_quotes, same_words_twice, sentence_with_answer):
+    # bad_quotes: the wrong quotes themselves, for example ["have finish"] (empty list = no quote problem).
+    # same_words_twice: True when the main and the detected mistake quote the same words.
+    # One retry fixes both problems. The version does not change.
+    retry_prompt_text = prompt_text
 
-    for bad_quote in bad_quotes:
-        quoted_texts.append("\"" + bad_quote + "\"")
+    if len(bad_quotes) > 0:
+        quoted_texts = []
 
-    retry_note = GAP_GRADE_QUOTE_RETRY_NOTE_TEMPLATE.format(bad_quotes=", ".join(quoted_texts),
-                                                            sentence_with_answer=sentence_with_answer)
+        for bad_quote in bad_quotes:
+            quoted_texts.append("\"" + bad_quote + "\"")
 
-    return prompt_text + retry_note
+        retry_prompt_text = retry_prompt_text + GAP_GRADE_QUOTE_RETRY_NOTE_TEMPLATE.format(
+            bad_quotes=", ".join(quoted_texts), sentence_with_answer=sentence_with_answer)
+
+    if same_words_twice:
+        retry_prompt_text = retry_prompt_text + GAP_GRADE_SAME_WORDS_RETRY_NOTE
+
+    return retry_prompt_text

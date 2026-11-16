@@ -253,6 +253,19 @@ def test_the_fallback_changes_only_the_bad_quote():
     assert changed_grade.mistake_text == ""
 
 
+# ---------- quotes_overlap ----------
+
+@pytest.mark.parametrize("first_quote, second_quote", [("writed", "writed"), ("has writed", "writed"),
+                                                       ("writed", "Has Writed.")])
+def test_quotes_that_share_the_same_words_overlap(first_quote, second_quote):
+    assert grading.quotes_overlap(first_quote, second_quote)
+
+
+@pytest.mark.parametrize("first_quote, second_quote", [("has writes", "reprot"), ("go", "goes"), ("", "writed")])
+def test_quotes_on_other_words_do_not_overlap(first_quote, second_quote):
+    assert not grading.quotes_overlap(first_quote, second_quote)
+
+
 # ---------- corrected_sentence_matches ----------
 
 def test_the_corrected_sentence_matches_after_replacing_the_main_quote():

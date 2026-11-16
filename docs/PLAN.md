@@ -213,6 +213,10 @@ This is the first version you can really study with, and it copies the page I bu
 - [ ] `why_wrong` and `rule` follow my explanation language setting (English by default until Step 4 adds the selector). `mistake_text` is never translated or changed.
 - [ ] In the database, the 3 parts are joined into the `explanation` column.
 - [ ] Tone: kind and encouraging, explain the reason (often the Portuguese structure behind the mistake). The verdict stays strict.
+- [x] One slip, one skill (2026-11-16, after the grade demo: "writed" was a wrong verdict AND a detected irregular_verbs row). The detected mistake cannot quote the same words as the main mistake. Checked in code (`grading.py`), with an explicit "She has writed it" example in the prompt. One retry (the same retry as the quotes, one note per problem). If it happens again: keep the main verdict, drop the detected row, log it. Never count one slip against two skills.
+- [x] `note` (2026-11-16): the code ignores it unless the verdict is correct (wrong and partial have the 3 parts), and does not show it when there is a detected slip (the reminder is enough).
+- [x] A total ceiling per graded answer (2026-11-16): about 4 requests and 20 seconds, counting the quote retry (`RequestBudget` in `llm.py`, shared by the calls).
+- [x] `corrected_sentence` check (2026-11-16): my sentence with each quote replaced by its correction must give `corrected_sentence`. If not, it is only logged (`logs/grading_problems.jsonl`), never retried.
 - [ ] Show the result in green, yellow or red, with the rule and the corrected sentence.
 - [ ] Add a hint button. Save if you used it.
 - [ ] Save every attempt with `save_attempt()`, including the seconds you took.
@@ -233,6 +237,8 @@ This is the first version you can really study with, and it copies the page I bu
 - [ ] Write `eval/run_eval.py`. It grades all rows with the AI and prints the agreement and a confusion matrix.
 - [ ] `run_eval.py` appends each run to `eval/results.csv`: date (UTC), eval set (gap, writing, translate), model, prompt version, number of rows, agreement. The file goes in git. The Step 8 chart "grader agreement per prompt version" reads it.
 - [ ] Improve the prompt, or change the model, until agreement is 90% or more.
+- [ ] Explanation review (2026-11-16): besides the gold verdicts, I read the explanations of about 20 graded answers and mark any rule or grammar term that may be wrong (example from the grade demo: "present continuous" for "have been living"). Count them and write the number in docs/JOURNAL.md.
+- [ ] Grader effort (2026-11-16): run the gold file with the grader on `low` effort and on the default effort, and compare the agreement. `AI_REASONING_EFFORT_GRADE` changes only in `.env`.
 - [x] Reasoning effort per task (2026-11-16): `llm.ask()` receives a task ("create" or "grade"). The values live in `.env` (`AI_REASONING_EFFORT_CREATE`, `AI_REASONING_EFFORT_GRADE`), never in code, so changing provider still needs only settings. Every log line saves the task and the effort used.
 - [ ] Effort comparison, blind (can run over two days): 40 exercises made with `low` and 40 with the default, 8 batches each, the SAME skills and topics in both groups. Claude gives me one file with the 80 sentences mixed, without effort or batch. I mark each one good or weak. Claude reveals the groups only after I finish. Only a clear difference counts (small samples, random AI).
 - [ ] Review 20 generated exercises by hand and count how many really test the skill that was asked. The AI returns a `GapExerciseDraft` and the code adds `skill_id` and `level`, so this is the only check that the AI wrote about the right skill. Write the number in docs/JOURNAL.md.

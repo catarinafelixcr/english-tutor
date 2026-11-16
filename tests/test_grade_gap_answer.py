@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from tutor import db, grading, llm
+from tutor import db, grading, llm, prompts
 from tutor.schemas import Exercise
 
 WRITE_SENTENCE = "She has ___ (write) the report already."
@@ -236,9 +236,103 @@ def test_a_failed_quote_retry_keeps_the_first_grade(database_path, monkeypatch):
     assert result.state == "partial"
     assert result.mistake_text == "write"
     # The fallback quote "write" + the correction "has written" gives "has has written": a 4th problem, as expected.
-    assert read_problems(database_path) == ["bad_quotes", "quote_retry_failed", "quote_fallback",
+    assert read_problems(database_path) == ["bad_quotes", "retry_failed", "quote_fallback",
                                             "corrected_sentence_mismatch"]
     assert len(db.get_attempts(database_path=database_path)) == 1
+
+
+# ---------- one slip, one skill (the grade demo, 2026-11-16) ----------
+
+def writed_counted_twice():
+    # What Gemini really answered for "writed": a wrong verdict AND a detected irregular_verbs on the same word.
+    return {"verdict": "wrong", "error_type": "grammar", "mistake_text": "writed", "correction": "written",
+            "why_wrong": "You wrote 'writed', but write is irregular.", "rule": "write → written.",
+            "corrected_sentence": "She has written the report already.",
+            "detected_mistake": {"skill_id": "irregular_verbs", "error_type": "grammar", "mistake_text": "writed",
+                                 "correction": "written"}}
+
+
+def writed_counted_once():
+    return {"verdict": "correct", "corrected_sentence": "She has written the report already.",
+            "detected_mistake": {"skill_id": "irregular_verbs", "error_type": "grammar", "mistake_text": "writed",
+                                 "correction": "written"}}
+
+
+def test_the_same_words_twice_are_retried_with_a_note(database_path, monkeypatch):
+    fake_ask = install_fake_ask(monkeypatch, [writed_counted_twice(), writed_counted_once()])
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", WRITE_SENTENCE, "written")
+
+    result = grading.grade_gap_answer(exercise_id, exercise, "writed", False, 6.0, "English", database_path)
+    saved_attempts = db.get_attempts(database_path=database_path)
+
+    assert len(fake_ask.prompts_received) == 2
+    assert fake_ask.prompts_received[1].endswith(prompts.GAP_GRADE_SAME_WORDS_RETRY_NOTE)
+    assert result.state == "almost"
+    assert list(saved_attempts["verdict"]) == ["correct", "wrong"]
+    assert read_problems(database_path) == ["same_words_twice"]
+
+
+def test_the_same_words_twice_again_keep_the_verdict_and_drop_the_detected_row(database_path, monkeypatch):
+    install_fake_ask(monkeypatch, [writed_counted_twice(), writed_counted_twice()])
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", WRITE_SENTENCE, "written")
+
+    result = grading.grade_gap_answer(exercise_id, exercise, "writed", False, 6.0, "English", database_path)
+    saved_attempts = db.get_attempts(database_path=database_path)
+
+    assert result.state == "wrong"
+    assert result.detected_skill_id == ""
+    assert list(saved_attempts["skill_id"]) == ["present_perfect"]
+    assert "detected_mistake_dropped" in read_problems(database_path)
+
+
+def test_a_detected_slip_on_other_words_is_kept(database_path, monkeypatch):
+    # "She has writes the reprot": the main mistake and a spelling slip on ANOTHER word. Both rows are right.
+    wrong_with_typo = partial_grade("has writes")
+    wrong_with_typo["verdict"] = "wrong"
+    wrong_with_typo["corrected_sentence"] = "She has written the report already."
+    wrong_with_typo["detected_mistake"] = {"skill_id": "spelling", "error_type": "spelling", "mistake_text": "reprot",
+                                           "correction": "report"}
+    fake_ask = install_fake_ask(monkeypatch, [wrong_with_typo])
+    sentence = "She has ___ (write) the reprot already."
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", sentence, "written")
+
+    grading.grade_gap_answer(exercise_id, exercise, "writes", False, 6.0, "English", database_path)
+    saved_attempts = db.get_attempts(database_path=database_path)
+
+    assert len(fake_ask.prompts_received) == 1
+    assert list(saved_attempts["skill_id"]) == ["present_perfect", "spelling"]
+
+
+# ---------- note: only for a correct answer with no slip ----------
+
+def test_a_note_on_a_wrong_answer_is_ignored(database_path, monkeypatch):
+    wrong_with_note = partial_grade("has writes")
+    wrong_with_note["verdict"] = "wrong"
+    wrong_with_note["note"] = "Please provide a valid past participle."
+    install_fake_ask(monkeypatch, [wrong_with_note])
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", WRITE_SENTENCE, "written")
+
+    result = grading.grade_gap_answer(exercise_id, exercise, "writes", False, 6.0, "English", database_path)
+    saved_attempts = db.get_attempts(database_path=database_path)
+
+    assert result.note == ""
+    assert "Please provide" not in saved_attempts.loc[0, "explanation"]
+
+
+def test_a_note_next_to_a_slip_is_not_shown(database_path, monkeypatch):
+    spelling_with_note = writed_counted_once()
+    spelling_with_note["detected_mistake"] = {"skill_id": "spelling", "error_type": "spelling",
+                                              "mistake_text": "writen", "correction": "written"}
+    spelling_with_note["note"] = "Your answer is correct, with a small spelling slip."
+    install_fake_ask(monkeypatch, [spelling_with_note])
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", WRITE_SENTENCE, "written")
+
+    result = grading.grade_gap_answer(exercise_id, exercise, "writen", False, 6.0, "English", database_path)
+    saved_attempts = db.get_attempts(database_path=database_path)
+
+    assert result.note == ""
+    assert result.reminder == "Check the spelling: writen → written."
+    assert saved_attempts.loc[0, "explanation"] == ""
 
 
 # ---------- corrected_sentence and AI errors ----------

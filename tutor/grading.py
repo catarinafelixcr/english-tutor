@@ -183,6 +183,36 @@ def use_my_answer_as_bad_quotes(grade, bad_quote_names, your_answer):
     return changed_grade
 
 
+# ---------- one slip, one skill ----------
+
+def quotes_overlap(first_quote, second_quote):
+    # True if one quote contains the other as whole words: "writed" and "has writed" overlap.
+    cleaned_first_quote = clean_for_comparing(first_quote)
+    cleaned_second_quote = clean_for_comparing(second_quote)
+
+    if cleaned_first_quote == "" or cleaned_second_quote == "":
+        return False
+
+    if re.search(make_whole_words_pattern(cleaned_second_quote), cleaned_first_quote) is not None:
+        return True
+
+    return re.search(make_whole_words_pattern(cleaned_first_quote), cleaned_second_quote) is not None
+
+
+def has_same_words_twice(grade):
+    # True when the main and the detected mistake quote the same words: one slip would count against two skills
+    # (the grade demo, 2026-11-16: "writed" was the main mistake AND a detected irregular_verbs mistake).
+    if grade.verdict == "correct" or grade.detected_mistake is None:
+        return False
+
+    return quotes_overlap(grade.mistake_text, grade.detected_mistake.mistake_text)
+
+
+def drop_detected_mistake(grade):
+    # My rule: keep the main verdict, drop the detected row. Never count one slip against two skills.
+    return grade.model_copy(update={"detected_mistake": None})
+
+
 # ---------- checking corrected_sentence (only logged, never retried) ----------
 
 def replace_quote(cleaned_sentence, quote, correction):
@@ -281,10 +311,23 @@ def make_reminder(skill_id, mistake_text, correction):
     return ""
 
 
+def choose_note_to_show(grade):
+    # The AI sometimes writes a note where the prompt says to leave it empty (the grade demo, 2026-11-16).
+    # My rules: a note only for a correct answer (wrong/partial have the 3 parts), and not when there is a slip
+    # (the reminder is enough).
+    if grade.verdict != "correct":
+        return ""
+
+    if grade.detected_mistake is not None:
+        return ""
+
+    return grade.note
+
+
 def join_explanation(grade):
     # The text saved in the "explanation" column: the 3 parts, or the "also right" note.
     if grade.verdict == "correct":
-        return grade.note
+        return choose_note_to_show(grade)
 
     return "You wrote: " + grade.mistake_text + "\nWhy: " + grade.why_wrong + "\nRule: " + grade.rule
 
@@ -367,9 +410,11 @@ def get_bad_quote_texts(grade, bad_quote_names):
 
 
 def ask_ai_for_grade(exercise_id, exercise, your_answer, explanation_language):
-    # Returns (grade, model returned, prompt version). The grade's quotes are words of my sentence:
-    # checked, retried once with a note, and replaced by my answer if the retry fails too.
-    # Every request for this answer shares ONE budget: about 4 requests and 20 seconds in total (my rule).
+    # Returns (grade, model returned, prompt version). Two code checks on the grade:
+    # - its quotes are words of my sentence (if not: my answer replaces them after the retry);
+    # - one slip counts against one skill (if not: the detected mistake is dropped after the retry).
+    # ONE retry fixes both, with a note per problem. Every request for this answer shares ONE budget:
+    # about 4 requests and 20 seconds in total (my rule).
     my_answer = clean_answer(your_answer)
     sentence_with_answer = build_sentence_with_answer(exercise.prompt_text, your_answer)
     prompt_text, prompt_version = prompts.build_gap_grade_prompt(exercise, my_answer, sentence_with_answer,
@@ -380,18 +425,25 @@ def ask_ai_for_grade(exercise_id, exercise, your_answer, explanation_language):
     # No try here: if the first grade fails, the page shows the error and nothing is saved.
     grade, model_returned = llm.ask(prompt_text, prompt_version, grade_schema, "grade", shared_budget)
     bad_quote_names = find_bad_quotes(grade, sentence_with_answer)
+    same_words_twice = has_same_words_twice(grade)
 
-    if len(bad_quote_names) > 0:
+    if len(bad_quote_names) > 0 or same_words_twice:
         bad_quote_texts = get_bad_quote_texts(grade, bad_quote_names)
-        write_grading_problem("bad_quotes", exercise_id, exercise, your_answer, grade, bad_quote_texts)
 
-        retry_prompt_text = prompts.add_quote_retry_note(prompt_text, bad_quote_texts, sentence_with_answer)
+        if len(bad_quote_texts) > 0:
+            write_grading_problem("bad_quotes", exercise_id, exercise, your_answer, grade, bad_quote_texts)
+
+        if same_words_twice:
+            write_grading_problem("same_words_twice", exercise_id, exercise, your_answer, grade, "")
+
+        retry_prompt_text = prompts.add_retry_notes(prompt_text, bad_quote_texts, same_words_twice,
+                                                    sentence_with_answer)
 
         try:
             grade, model_returned = llm.ask(retry_prompt_text, prompt_version, grade_schema, "grade", shared_budget)
         except llm.AIError as error:
-            # Busy, out of budget, invalid... The first grade is still good enough to show.
-            write_grading_problem("quote_retry_failed", exercise_id, exercise, your_answer, grade, str(error))
+            # Busy, out of budget, invalid... The first grade is still good enough to show, after the fixes below.
+            write_grading_problem("retry_failed", exercise_id, exercise, your_answer, grade, str(error))
 
         bad_quote_names = find_bad_quotes(grade, sentence_with_answer)
 
@@ -399,6 +451,11 @@ def ask_ai_for_grade(exercise_id, exercise, your_answer, explanation_language):
         bad_quote_texts = get_bad_quote_texts(grade, bad_quote_names)
         write_grading_problem("quote_fallback", exercise_id, exercise, your_answer, grade, bad_quote_texts)
         grade = use_my_answer_as_bad_quotes(grade, bad_quote_names, your_answer)
+
+    # Checked AFTER the quote fallback: my answer as both quotes would also be the same words twice.
+    if has_same_words_twice(grade):
+        write_grading_problem("detected_mistake_dropped", exercise_id, exercise, your_answer, grade, "")
+        grade = drop_detected_mistake(grade)
 
     # Addition C: only logged, never retried.
     if not corrected_sentence_matches(grade, sentence_with_answer):
@@ -445,7 +502,7 @@ def make_ai_result(submission_id, your_answer, grade):
     result = GapResult(submission_id=submission_id, state=choose_state(grade.verdict, detected_mistake),
                        graded_by="ai", your_answer=your_answer, corrected_sentence=grade.corrected_sentence,
                        mistake_text=grade.mistake_text, correction=grade.correction, why_wrong=grade.why_wrong,
-                       rule=grade.rule, note=grade.note, memory_tip=grade.memory_tip,
+                       rule=grade.rule, note=choose_note_to_show(grade), memory_tip=grade.memory_tip,
                        other_good_answers=grade.other_good_answers)
 
     if detected_mistake is None:
