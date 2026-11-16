@@ -7,12 +7,12 @@ Tick a task when it is finished. Write the date when a step is done.
 ## Step 0 – Setup
 
 - [ ] GitHub repo created (README, MIT license, Python .gitignore)
-- [ ] Virtual environment created
-- [ ] requirements.txt written and installed
+- [x] Virtual environment created
+- [x] requirements.txt written and installed
 - [ ] Gemini API key created and tested
 - [ ] .env created, .env.example committed, .env and data/ in .gitignore
-- [ ] Folders created (pages, tutor, data, tests, eval, docs)
-- [ ] app.py shows the menu with one empty page per section
+- [x] Folders created (pages, tutor, data, tests, eval, docs)
+- [x] app.py shows the menu with one empty page per section
 - [ ] First commit pushed
 
 Done when: the app opens in the browser with all menu items, and the repo is on GitHub.
