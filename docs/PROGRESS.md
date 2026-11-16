@@ -35,7 +35,7 @@ Done on: 2026-11-16
 
 - [x] Part 1: batches of 5 exercises per request, `exercise_type` column (first migration, with backup), stricter batch prompt (one clear signal, level vocabulary, meaning hints)
 - [x] First thing next session: run `python -m scripts.step2_batch_demo present_simple` (signal + default effort, never tested for real: 2 tries today, both 503). Done: 0 of 5 weak, first try
-- [ ] Part 2: check answers (code first, then the AI), `GapGrade`, save attempts, exercise stock (never wait for a live request)
+- [x] Part 2: check answers (code first, then the AI), `GapGrade`, save attempts, exercise stock (never wait for a live request). Done 2026-11-16: 327 tests, grade demo 6/6 graded with the real AI
 - [ ] Part 3: the Practice page (fill the gap)
 - [ ] Part 4: gold file (50 rows), `run_eval.py`, hand review of 20 exercises
 - [ ] Part 5: Fix the error and Word order

@@ -185,41 +185,41 @@ This is the first version you can really study with, and it copies the page I bu
 - [ ] Save the good ones in `exercises` and avoid sentences you already saw.
 - [ ] New column `exercise_type` in `exercises`: `gap`, `fix_error` or `word_order` (empty for other sections). It is required for Practice exercises.
 - [ ] First migration (database version 1 → 2): adds `exercise_type` and sets the old Practice rows to `gap`. Before ANY migration runs, `init_db()` copies `data/tutor.db` to `data/backups/tutor_before_v2_<UTC time>.db`. No copy for a new database or one already up to date. A test upgrades a real version-1 database.
-- [ ] Use saved exercises first: exercises that were created but never answered are shown before the app asks the AI for new ones.
-- [ ] Exercise stock (2026-11-16, to build in Part 2, after a day with 8 × 503 "high demand" out of 12 requests): Practice never depends on a live request to show the next exercise. It keeps a stock of unused exercises in the database (`get_unanswered_exercises()`). When the stock for a skill is below 3, it creates a new batch. If the AI is busy, I keep practising from the stock and see a small notice, not an error. Only an EMPTY stock with a busy AI shows a message (with a "Try again" button). To decide in Part 2: a refill while the stock is not empty should not make me wait for the full retry budget (about 20 s).
+- [x] Use saved exercises first: exercises that were created but never answered are shown before the app asks the AI for new ones.
+- [x] Exercise stock (2026-11-16, to build in Part 2, after a day with 8 × 503 "high demand" out of 12 requests): Practice never depends on a live request to show the next exercise. It keeps a stock of unused exercises in the database (`get_unanswered_exercises()`). When the stock for a skill is below 3, it creates a new batch. If the AI is busy, I keep practising from the stock and see a small notice, not an error. Only an EMPTY stock with a busy AI shows a message (with a "Try again" button). To decide in Part 2: a refill while the stock is not empty should not make me wait for the full retry budget (about 20 s).
 - [ ] Add selectors for level and topic (daily life, data science and work, travel, meetings).
 - [ ] Add a skill selector: one skill from the list, grouped by category, or "any skill". Skills of the category `general` are not in it. When I choose a skill, the level selector starts at the skill's level: I can choose a higher level, not a lower one.
 
 **Check answers**
 
-- [ ] First check in code: if your answer equals the expected answer or an accepted one (ignore capital letters and spaces), it is correct. No AI call needed.
-- [ ] Capitalization in code: if my answer equals the expected answer except for capital letters, and the expected answer has a capital where I wrote a small letter (monday vs Monday), save the targeted attempt as correct and add one detected attempt for `capitalization` (same submission\_id), with a short reminder on screen. No AI call.
-- [ ] Otherwise ask the AI. Schema `GapGrade`: verdict, error type, explanation, corrected sentence, other good answers, memory tip.
-- [ ] Tell the AI to accept any answer a native speaker would use, and to explain why your answer does not work.
-- [ ] Grammar right but spelling wrong ("have finised"): save two attempts with the same submission\_id. One targeted, the exercise skill, verdict correct; one detected, skill `spelling`, verdict wrong. A wrong irregular form ("writed", "have went") is a grammar mistake, not spelling. Write this rule clearly in the grader prompt.
-- [ ] Verdicts in fill the gap (my rule, 2026-11-16):
+- [x] First check in code: if your answer equals the expected answer or an accepted one (ignore capital letters and spaces), it is correct. No AI call needed.
+- [x] Capitalization in code: if my answer equals the expected answer except for capital letters, and the expected answer has a capital where I wrote a small letter (monday vs Monday), save the targeted attempt as correct and add one detected attempt for `capitalization` (same submission\_id), with a short reminder on screen. No AI call.
+- [x] Otherwise ask the AI. Schema `GapGrade`: verdict, error type, explanation, corrected sentence, other good answers, memory tip.
+- [x] Tell the AI to accept any answer a native speaker would use, and to explain why your answer does not work.
+- [x] Grammar right but spelling wrong ("have finised"): save two attempts with the same submission\_id. One targeted, the exercise skill, verdict correct; one detected, skill `spelling`, verdict wrong. A wrong irregular form ("writed", "have went") is a grammar mistake, not spelling. Write this rule clearly in the grader prompt.
+- [x] Verdicts in fill the gap (my rule, 2026-11-16):
   - correct = the answer fits. A spelling slip is correct + a detected `spelling` row.
   - partial = I applied half of the tested rule and did not try the other half: "has finish" for present perfect (no past form at all).
   - wrong = I did not apply the tested rule.
   - If the slip belongs to ANOTHER skill of the list, the tested skill is correct and that skill gets a detected wrong row: "writed" in a past simple exercise = `past_simple` correct + `irregular_verbs` wrong; "have went" in a present perfect exercise = `present_perfect` correct (I used have + a past form) + `irregular_verbs` wrong. When the exercise tests `irregular_verbs` itself, "writed" is simply wrong.
-- [ ] `GapGrade` has one optional `detected_mistake`: skill id (from the list, checked in code), error type, mistake text, correction. Spelling is `skill_id = spelling`.
+- [x] `GapGrade` has one optional `detected_mistake`: skill id (from the list, checked in code), error type, mistake text, correction. Spelling is `skill_id = spelling`.
 - [ ] On screen: green = correct (a spelling or capitalization slip adds a small reminder); yellow "Almost" = tested skill correct + a detected grammar mistake; yellow "Partly right" = partial; red = wrong.
-- [ ] Every explanation of a wrong or partial answer has 3 parts, in this order: (a) quote what I wrote, (b) why it is wrong in this sentence, (c) the rule in one line with the correct form. No general grammar text that ignores my answer.
-- [ ] The 3 parts are 3 fields in `GapGrade`: `mistake_text`, `why_wrong`, `rule`. `mistake_text` is the same value saved in the `mistake_text` column; Writing (Step 3) uses the same field and the same check.
-- [ ] The 3 fields are required when the verdict is wrong or partial, and empty when it is correct. For a correct answer that differs from the expected one, one short line in the optional field `note` confirms it is also right.
+- [x] Every explanation of a wrong or partial answer has 3 parts, in this order: (a) quote what I wrote, (b) why it is wrong in this sentence, (c) the rule in one line with the correct form. No general grammar text that ignores my answer.
+- [x] The 3 parts are 3 fields in `GapGrade`: `mistake_text`, `why_wrong`, `rule`. `mistake_text` is the same value saved in the `mistake_text` column; Writing (Step 3) uses the same field and the same check.
+- [x] The 3 fields are required when the verdict is wrong or partial, and empty when it is correct. For a correct answer that differs from the expected one, one short line in the optional field `note` confirms it is also right.
 - [ ] Ambiguous sentences (2026-11-16): when my answer is natural in the sentence but different from the expected one (for example another tense that the sentence allows), the verdict is correct, with the "also right" note. The prompt rule ("one clear signal, only the tested form fits") cannot remove every ambiguous sentence, so the grader is the second protection. Write this rule in the grader prompt, and add gold rows for it.
-- [ ] Code check: `mistake_text` must appear in the full sentence with my answer inserted (not only in my answer). Ignore capital letters, quote marks, apostrophe styles (' and ’) and extra spaces.
-- [ ] If the check fails: retry once at most. If it fails again, use my answer as `mistake_text`, show the explanation, and log the case. Never block me.
-- [ ] `why_wrong` and `rule` follow my explanation language setting (English by default until Step 4 adds the selector). `mistake_text` is never translated or changed.
-- [ ] In the database, the 3 parts are joined into the `explanation` column.
-- [ ] Tone: kind and encouraging, explain the reason (often the Portuguese structure behind the mistake). The verdict stays strict.
+- [x] Code check: `mistake_text` must appear in the full sentence with my answer inserted (not only in my answer). Ignore capital letters, quote marks, apostrophe styles (' and ’) and extra spaces.
+- [x] If the check fails: retry once at most. If it fails again, use my answer as `mistake_text`, show the explanation, and log the case. Never block me.
+- [x] `why_wrong` and `rule` follow my explanation language setting (English by default until Step 4 adds the selector). `mistake_text` is never translated or changed.
+- [x] In the database, the 3 parts are joined into the `explanation` column.
+- [x] Tone: kind and encouraging, explain the reason (often the Portuguese structure behind the mistake). The verdict stays strict.
 - [x] One slip, one skill (2026-11-16, after the grade demo: "writed" was a wrong verdict AND a detected irregular_verbs row). The detected mistake cannot quote the same words as the main mistake. Checked in code (`grading.py`), with an explicit "She has writed it" example in the prompt. One retry (the same retry as the quotes, one note per problem). If it happens again: keep the main verdict, drop the detected row, log it. Never count one slip against two skills.
 - [x] `note` (2026-11-16): the code ignores it unless the verdict is correct (wrong and partial have the 3 parts), and does not show it when there is a detected slip (the reminder is enough).
 - [x] A total ceiling per graded answer (2026-11-16): about 4 requests and 20 seconds, counting the quote retry (`RequestBudget` in `llm.py`, shared by the calls).
 - [x] `corrected_sentence` check (2026-11-16): my sentence with each quote replaced by its correction must give `corrected_sentence`. If not, it is only logged (`logs/grading_problems.jsonl`), never retried.
 - [ ] Show the result in green, yellow or red, with the rule and the corrected sentence.
 - [ ] Add a hint button. Save if you used it.
-- [ ] Save every attempt with `save_attempt()`, including the seconds you took.
+- [x] Save every attempt with `save_attempt()`, including the seconds you took.
 
 **Two more exercise types (same page, same grading code)**
 

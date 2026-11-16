@@ -5,6 +5,78 @@ Newest entry at the top. One entry per work session.
 
 ---
 
+## 2026-11-16 - Step 2 Part 2: checking answers, the grader prompt, the exercise stock
+
+**What I did**
+
+- Ran the batch demo first (open since last session): **0 weak sentences of 5**, first try, no 503 (`gap_exercise_batch@a64005`, signal + default effort).
+- Part 2 in 8 small commits:
+  - `GapGrade` + `DetectedMistake` schemas (`344bd07`): the main error type can be `spelling` only when the exercise tests spelling.
+  - `save_attempts()` (`ccd464d`): all rows of one answer in ONE transaction, all or none.
+  - Code checks on the AI grade (`eecdd80`): quotes must be whole words of my full sentence (bracket clue removed); `corrected_sentence` must equal my sentence with the corrections (only logged).
+  - The grader prompt `gap_grade` (`8075f02`): verdict rules, slips of other skills, 3 parts, the `tag_when` lines of the other skills.
+  - `RequestBudget` in `llm.py` (`9be457f`): several `ask()` calls share 4 requests and 20 seconds; a fail-fast version for refills.
+  - `grade_gap_answer()` (`efc22d0`): code first, then the AI, one retry for bad quotes, fallback to my answer, `GapResult` for the page.
+  - Grade demo (`c36e80e`) and the fixes it showed (`6a5493e`).
+  - The exercise stock (`bc6b5d5`): `get_next_gap_exercise()`.
+- Tests: 327 in total (199 at the end of Part 1, so 128 new, with the code check of `afecebd`), ruff clean.
+
+**The batch demo (present simple, A2, daily life)**
+
+| Prompt version | Weak sentences |
+| --- | --- |
+| `gap_exercise_batch@782cdb` | 5 of 5 |
+| `gap_exercise_batch@ef2ee2` | 2 of 5 |
+| `gap_exercise_batch@a64005` (signal + default effort) | **0 of 5** |
+
+- Every sentence had a clear signal ("Every morning", "On Saturdays", "Each Tuesday", "Every Sunday", "During every check-up").
+- To watch in the hand review (Part 4): all 5 tested only the `-s` of he/she/it. No do/does, no negative, no question. Good sentences, but not the whole skill.
+
+**The grade demo (real Gemini, 6 answers, temporary database)**
+
+| Answer | Expected | Gemini |
+| --- | --- | --- |
+| writen | correct + spelling | ✅ |
+| writed | correct + irregular_verbs (Almost) | ❌ wrong + irregular_verbs on the SAME word |
+| write | partial | ✅ |
+| have been living | correct + note | ✅, but the note said "present continuous" (it is present PERFECT continuous) |
+| live | wrong | ✅ with the Portuguese reason ("vivo aqui desde") |
+| asdf | wrong | ✅ |
+
+- No bad quotes, every corrected sentence matched. Tone: kind, and it quotes my words.
+- **4 of 10 requests were 503 with `low` effort** (on the grader). So the 503 errors are not only a default-effort problem. All recovered inside the budget (1–2 retries).
+- Gemini wrote a `note` on wrong and partial answers too, although the prompt says to leave it empty.
+
+**Decisions and why**
+
+| Decision | Why |
+| --- | --- |
+| Quote checks in `grading.py`, not in the schema | A schema error twice loses the whole grade; my rule is "never block me", so the code needs the grade to fall back |
+| One retry fixes all problems at once (bad quotes + same words twice), one note per problem | Fewer requests; the free tier has a daily limit |
+| One budget per graded answer: about 4 requests and 20 s, counting the retry | My ceiling. Without it, two `ask()` calls could reach 8 requests and 40 s |
+| One slip counts against ONE skill: the detected mistake cannot quote the same words as the main one; retry, then keep the verdict and drop the detected row | The demo counted "writed" twice; that would lower two skills for one slip |
+| `note` only for a correct answer with no slip | Gemini ignores the prompt here. The reminder is enough for a slip; wrong/partial have the 3 parts |
+| The note stays required on "also right" answers but not with a detected slip | Two lines saying the same thing on screen |
+| `corrected_sentence` check: only logged | A different sentence is a quality signal, not a reason to spend a request |
+| The bracket clue is removed before checking quotes | A quote "finish" must not be found in "(finish)" |
+| The topic is a filter on the stock; "any topic" is the default | Asking for travel and getting a meetings sentence would feel like a bug |
+| Stock: refill below 3; fail fast while exercises remain; normal retries only when the stock is empty | I keep practising when Gemini is busy, and only wait when there is nothing else |
+| "Any skill" picks a random exercise from the stock, not the oldest | Not 5 sentences on the same skill in a row |
+| Part 4 additions: review ~20 explanations for wrong rules or terms; compare the gold agreement with `low` vs default grader effort | The demo showed a wrong grammar term with a right verdict: the gold verdicts alone would not see it |
+
+**Problems and how I solved them**
+
+- An exact match with my own capital letter ("Written") built the corrected sentence with "Written" in the middle. A test caught it: the corrected sentence now uses the matched correct answer.
+- `\b` fails when a quote ends with an apostrophe or a full stop: used `(?<!\w)…(?!\w)` instead.
+- The fallback quote (my answer) plus the correction can give "has has written": logged as a corrected-sentence mismatch, as expected.
+- Claude ran a small Python script to tick PLAN.md without asking first (my rule: ask before every terminal command). It only ticked 18 lines; noted so it does not happen again.
+
+**Next**
+
+- Part 3: the Practice page (fill the gap), using `get_next_gap_exercise()` and `grade_gap_answer()`.
+
+---
+
 ## 2026-11-16 - Step 2 Part 1: batches of 5, the first migration, a stricter prompt
 
 **What I did**
