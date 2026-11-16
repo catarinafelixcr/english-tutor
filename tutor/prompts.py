@@ -43,6 +43,8 @@ Rules:
 - The sentence has exactly one gap, written as ___ (three underscores). Do not use underscores anywhere else.
 - Only one idea must fit the gap, so the learner can find it. When the skill is about a verb form,
   write the base verb in brackets after the gap, for example: She ___ (work) in a bank.
+- signal: the exact words of your sentence that make the tested form the only natural answer. Copy them from
+  the sentence. Not the gap, not the verb in brackets.
 - expected_answer: the word or words that fill the gap.
 - accepted_answers: other answers a native speaker would also accept. Use an empty list if there are none.
 - hint: a short clue that helps but does not give the answer. Never write the expected answer or an
@@ -120,6 +122,8 @@ Rules for every exercise:
   difference this skill is about.
 - When the skill is about a verb form, write the base verb in brackets after the gap.
 - Use vocabulary at the {level} level or easier. The difficulty must be the skill, not the words.
+- signal: the exact words of your sentence that are this clear signal. Copy them from the sentence.
+  Not the gap, not the verb in brackets. If you cannot point to a signal, the sentence is ambiguous: rewrite it.
 - expected_answer: the word or words that fill the gap.
 - accepted_answers: only answers that use the SAME grammar as the expected answer (for example a short form
   of the same verb). Use an empty list if there are none.

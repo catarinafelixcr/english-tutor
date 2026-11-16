@@ -145,6 +145,15 @@ def test_the_batch_prompt_asks_for_a_signal_that_makes_only_the_tested_form_natu
     assert "Use vocabulary at the A2 level or easier" in prompt_text
 
 
+def test_both_prompts_ask_for_the_signal():
+    single_prompt_text, single_prompt_version = build_prompt_for("to_be", [])
+    batch_prompt_text, batch_prompt_version = build_batch_prompt_for("to_be", [])
+
+    assert "- signal: the exact words of your sentence" in single_prompt_text
+    assert "- signal: the exact words of your sentence" in batch_prompt_text
+    assert "If you cannot point to a signal, the sentence is ambiguous" in batch_prompt_text
+
+
 def test_the_batch_template_has_no_example_of_one_particular_skill():
     # The template is shared by ALL skills: an example of one tense would push every skill toward it.
     # Examples come only from the skill itself (its typical mistake and tag_when).

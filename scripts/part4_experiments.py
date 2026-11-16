@@ -12,6 +12,9 @@ E6  a wrong key                                     no quota used
 E7  a wrong model name                              no quota used
 
 The key is read from .env and never printed.
+
+A record of Step 1, not meant to run again: since Step 2, GapExercise needs a "signal" field that this
+frozen prompt does not ask for, so E1, E2 and E4 would now get invalid answers.
 """
 
 import os

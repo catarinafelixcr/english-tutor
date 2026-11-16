@@ -30,9 +30,15 @@ class FakeAsk:
         return validated_answer, "fake-test-model"
 
 
+def first_word(sentence):
+    # The fake AI uses the first word as its signal: always in the sentence, so the signal check passes.
+    # (These tests check the plumbing, not the quality of the signal: tests/test_schemas.py does that.)
+    return sentence.split()[0]
+
+
 def install_fake_ask(monkeypatch, sentence):
-    planned_answer = {"sentence": sentence, "expected_answer": "am", "accepted_answers": ["'m"],
-                      "hint": "the verb for how you feel"}
+    planned_answer = {"sentence": sentence, "signal": first_word(sentence), "expected_answer": "am",
+                      "accepted_answers": ["'m"], "hint": "the verb for how you feel"}
     fake_ask = FakeAsk(planned_answer)
     monkeypatch.setattr(llm, "ask", fake_ask.ask)
 
@@ -157,7 +163,8 @@ def dropped_log_path(tmp_path, monkeypatch):
 
 
 def make_batch_item(sentence):
-    return {"sentence": sentence, "expected_answer": "am", "accepted_answers": ["'m"], "hint": "how you feel"}
+    return {"sentence": sentence, "signal": first_word(sentence), "expected_answer": "am", "accepted_answers": ["'m"],
+            "hint": "how you feel"}
 
 
 FIVE_GOOD_SENTENCES = ["I ___ tired after the flight.", "I ___ at the hotel now.", "I ___ ready to check in.",

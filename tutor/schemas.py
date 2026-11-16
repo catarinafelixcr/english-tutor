@@ -166,7 +166,10 @@ class GapExerciseDraft(BaseModel):
     # the ClassVar annotation to know that. Empty here; make_gap_exercise_draft_schema() fills it.
     used_sentences: ClassVar[tuple] = ()
 
+    # The field order is the order the AI writes them: it names the signal right after the sentence,
+    # before the answer. signal = the exact words of the sentence that make the tested form the only natural one.
     sentence: str
+    signal: str
     expected_answer: str
     accepted_answers: list[str] = Field(default_factory=list)
     hint: str
@@ -195,6 +198,35 @@ class GapExerciseDraft(BaseModel):
             raise ValueError("the hint is empty")
 
         return hint.strip()
+
+    @field_validator("signal")
+    @classmethod
+    def signal_must_not_be_empty(cls, signal):
+        # Spaces and a final full stop or comma are removed: "every morning." → "every morning".
+        clean_signal = signal.strip().strip(".,;:!?").strip()
+
+        if clean_signal == "":
+            raise ValueError("the signal is empty")
+
+        return clean_signal
+
+    @model_validator(mode="after")
+    def signal_must_be_real_words_of_the_sentence(self):
+        # The signal must be words the learner can SEE: not the gap, not the verb in brackets.
+        if "_" in self.signal:
+            raise ValueError("the signal is the gap: " + self.signal)
+
+        if "(" in self.signal or ")" in self.signal:
+            raise ValueError("the signal contains the verb in brackets: " + self.signal)
+
+        for bracket_text in re.findall(r"\(([^)]*)\)", self.sentence):
+            if normalize_answer(self.signal) == normalize_answer(bracket_text):
+                raise ValueError("the signal is the verb in brackets: " + self.signal)
+
+        if not contains_whole_words(self.sentence, self.signal):
+            raise ValueError("the signal is not in the sentence: " + self.signal)
+
+        return self
 
     @model_validator(mode="after")
     def accepted_answers_must_be_clean(self):
@@ -261,6 +293,7 @@ class GapExerciseItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     sentence: str
+    signal: str
     expected_answer: str
     accepted_answers: list[str] = Field(default_factory=list)
     hint: str

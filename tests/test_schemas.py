@@ -15,8 +15,8 @@ from tutor.schemas import (
 
 
 def make_gap_exercise_values():
-    return {"sentence": "She ___ (work) in a bank.", "expected_answer": "works", "accepted_answers": [],
-            "skill_id": "present_simple", "hint": "he / she / it", "level": "A2"}
+    return {"sentence": "She ___ (work) in a bank.", "signal": "in a bank", "expected_answer": "works",
+            "accepted_answers": [], "skill_id": "present_simple", "hint": "he / she / it", "level": "A2"}
 
 
 def test_a_good_gap_exercise_is_accepted():
@@ -93,6 +93,7 @@ def test_a_hint_with_the_expected_answer_is_refused(bad_hint):
 def test_a_hint_with_an_accepted_answer_is_refused():
     exercise_values = make_gap_exercise_values()
     exercise_values["sentence"] = "I ___ my keys yesterday."
+    exercise_values["signal"] = "yesterday"
     exercise_values["expected_answer"] = "lost"
     exercise_values["accepted_answers"] = ["misplaced"]
     exercise_values["skill_id"] = "irregular_verbs"
@@ -106,6 +107,7 @@ def test_a_hint_with_the_answer_inside_another_word_is_accepted():
     # Expected "am": the hint "the same verb" must be accepted, because "am" is not a whole word there.
     exercise_values = make_gap_exercise_values()
     exercise_values["sentence"] = "I ___ 25 years old."
+    exercise_values["signal"] = "25 years old"
     exercise_values["expected_answer"] = "am"
     exercise_values["skill_id"] = "to_be"
     exercise_values["hint"] = "the same verb as in 'I ___ happy'"
@@ -139,8 +141,8 @@ def test_an_unknown_level_is_refused():
 # ---------- GapExerciseDraft: what the AI returns ----------
 
 def make_draft_values():
-    return {"sentence": "She ___ (work) in a bank.", "expected_answer": "works", "accepted_answers": [],
-            "hint": "he / she / it"}
+    return {"sentence": "She ___ (work) in a bank.", "signal": "in a bank", "expected_answer": "works",
+            "accepted_answers": [], "hint": "he / she / it"}
 
 
 def test_a_good_draft_is_accepted():
@@ -200,7 +202,7 @@ def test_the_used_sentences_are_not_sent_to_the_ai():
 
     schema_fields = draft_schema.model_json_schema()["properties"]
 
-    assert list(schema_fields) == ["sentence", "expected_answer", "accepted_answers", "hint"]
+    assert list(schema_fields) == ["sentence", "signal", "expected_answer", "accepted_answers", "hint"]
 
 
 def test_the_plain_draft_has_no_used_sentences():
@@ -213,8 +215,9 @@ def test_the_plain_draft_has_no_used_sentences():
 
 # ---------- a batch of exercises: each item is checked alone ----------
 
-def make_item_values(sentence, expected_answer, hint):
-    return {"sentence": sentence, "expected_answer": expected_answer, "accepted_answers": [], "hint": hint}
+def make_item_values(sentence, signal, expected_answer, hint):
+    return {"sentence": sentence, "signal": signal, "expected_answer": expected_answer, "accepted_answers": [],
+            "hint": hint}
 
 
 def make_items(item_values_list):
@@ -226,10 +229,10 @@ def make_items(item_values_list):
     return items
 
 
-GOOD_ITEM = make_item_values("She ___ (work) in a bank.", "works", "this is her job")
-SECOND_GOOD_ITEM = make_item_values("He ___ (live) in Lisbon.", "lives", "his home town")
-HINT_GIVES_THE_ANSWER = make_item_values("They ___ (play) tennis.", "play", "they play every Sunday")
-NO_GAP = make_item_values("We work in an office.", "work", "our job")
+GOOD_ITEM = make_item_values("She ___ (work) in a bank.", "in a bank", "works", "this is her job")
+SECOND_GOOD_ITEM = make_item_values("He ___ (live) in Lisbon.", "in Lisbon", "lives", "his home town")
+HINT_GIVES_THE_ANSWER = make_item_values("They ___ (play) tennis.", "tennis", "play", "they play every Sunday")
+NO_GAP = make_item_values("We work in an office.", "in an office", "work", "our job")
 
 
 def test_split_keeps_the_good_items_and_drops_the_bad_ones_with_a_reason():
@@ -251,7 +254,7 @@ def test_split_keeps_the_good_items_and_drops_the_bad_ones_with_a_reason():
 
 
 def test_split_drops_the_second_copy_of_a_sentence_in_the_same_batch():
-    same_sentence_again = make_item_values("she ___ (WORK) in a bank.", "works", "her job again")
+    same_sentence_again = make_item_values("she ___ (WORK) in a bank.", "in a bank", "works", "her job again")
     items = make_items([GOOD_ITEM, same_sentence_again])
 
     valid_items, rejected_items = split_gap_exercise_items(items, GapExerciseDraft)
@@ -297,4 +300,52 @@ def test_the_batch_schema_sent_to_the_ai_has_only_the_exercises_list():
     item_fields = json_schema["$defs"]["GapExerciseItem"]["properties"]
 
     assert list(json_schema["properties"]) == ["exercises"]
-    assert list(item_fields) == ["sentence", "expected_answer", "accepted_answers", "hint"]
+    assert list(item_fields) == ["sentence", "signal", "expected_answer", "accepted_answers", "hint"]
+
+
+# ---------- the signal: the words that make only the tested form natural ----------
+
+def make_signal_draft_values(sentence, signal):
+    draft_values = make_draft_values()
+    draft_values["sentence"] = sentence
+    draft_values["signal"] = signal
+
+    return draft_values
+
+
+@pytest.mark.parametrize("sentence, signal, cleaned_signal", [
+    ("The museum ___ (open) at nine every morning.", "every morning", "every morning"),
+    ("The museum ___ (open) at nine every morning.", "  Every Morning. ", "Every Morning"),
+    ("She always ___ (ask) for a passport.", "always", "always"),
+])
+def test_a_signal_from_the_sentence_is_accepted(sentence, signal, cleaned_signal):
+    draft = GapExerciseDraft(**make_signal_draft_values(sentence, signal))
+
+    assert draft.signal == cleaned_signal
+
+
+@pytest.mark.parametrize("signal, error_text", [
+    ("", "signal is empty"),
+    (" . ", "signal is empty"),
+    ("every evening", "not in the sentence"),
+    ("morn", "not in the sentence"),           # part of a word is not a whole word
+    ("___", "signal is the gap"),
+    ("museum ___", "signal is the gap"),
+    ("(open)", "verb in brackets"),
+    ("open", "verb in brackets"),
+])
+def test_a_bad_signal_is_refused(signal, error_text):
+    draft_values = make_signal_draft_values("The museum ___ (open) at nine every morning.", signal)
+
+    with pytest.raises(ValidationError, match=error_text):
+        GapExerciseDraft(**draft_values)
+
+
+def test_a_batch_item_with_a_bad_signal_is_dropped_alone():
+    bad_signal_item = make_item_values("He ___ (live) in Lisbon.", "today", "lives", "his home town")
+    items = make_items([GOOD_ITEM, bad_signal_item])
+
+    valid_items, rejected_items = split_gap_exercise_items(items, GapExerciseDraft)
+
+    assert len(valid_items) == 1
+    assert "not in the sentence" in rejected_items[0]["reason"]
