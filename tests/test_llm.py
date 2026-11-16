@@ -61,7 +61,7 @@ def make_fake_response(answer_text, model_returned):
 def make_fake_settings():
     return {"provider": "gemini", "model": "fake-test-model", "base_url": "https://fake.example",
             "api_key": FAKE_API_KEY, "reasoning_effort": "", "daily_limit": 500, "daily_limit_margin": 20,
-            "timeout_seconds": 30}
+            "timeout_seconds": 30, "reasoning_effort_by_task": {"create": "", "grade": "low"}}
 
 
 class FakeWorld:
@@ -73,9 +73,11 @@ class FakeWorld:
         self.clock_seconds = 1000.0
         self.call_count = 0
         self.waits = []
+        self.reasoning_efforts_sent = []
 
     def call_ai(self, settings, prompt_text, schema):
         self.call_count = self.call_count + 1
+        self.reasoning_efforts_sent.append(settings["reasoning_effort"])
         self.clock_seconds = self.clock_seconds + self.request_seconds
         planned_result = self.planned_results.pop(0)
 
@@ -119,7 +121,7 @@ def read_log_lines(log_path):
 
 
 def ask_tiny_question():
-    return llm.ask("Say hi", "tiny@000000", TinyAnswer, make_fake_settings())
+    return llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", make_fake_settings())
 
 
 # ---------- ask(): success and bad answers ----------
@@ -348,7 +350,7 @@ def test_ask_stops_before_sending_when_the_limit_minus_the_margin_is_reached(log
     fake_world = install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
 
     with pytest.raises(llm.AIDailyLimitError):
-        llm.ask("Say hi", "tiny@000000", TinyAnswer, settings)
+        llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", settings)
 
     assert fake_world.call_count == 0
 
@@ -439,7 +441,8 @@ def set_fake_environment(monkeypatch, environment_values):
     monkeypatch.setattr(llm, "load_dotenv", lambda: None)
 
     for setting_name in ["AI_PROVIDER", "AI_MODEL", "AI_BASE_URL", "AI_API_KEY", "AI_REASONING_EFFORT",
-                         "AI_DAILY_LIMIT", "AI_DAILY_LIMIT_MARGIN", "AI_TIMEOUT_SECONDS"]:
+                         "AI_REASONING_EFFORT_CREATE", "AI_REASONING_EFFORT_GRADE", "AI_DAILY_LIMIT",
+                         "AI_DAILY_LIMIT_MARGIN", "AI_TIMEOUT_SECONDS"]:
         monkeypatch.delenv(setting_name, raising=False)
 
     for setting_name, setting_value in environment_values.items():
@@ -472,6 +475,66 @@ def test_read_ai_settings_needs_a_daily_limit(monkeypatch):
 
     with pytest.raises(llm.AIConfigurationError, match="AI_DAILY_LIMIT"):
         llm.read_ai_settings()
+
+
+# ---------- reasoning effort per task ----------
+
+REQUIRED_SETTINGS = {"AI_MODEL": "m", "AI_BASE_URL": "https://fake.example", "AI_API_KEY": FAKE_API_KEY,
+                     "AI_DAILY_LIMIT": "500"}
+
+
+def test_a_task_without_its_own_setting_uses_the_general_reasoning_effort(monkeypatch):
+    environment_values = dict(REQUIRED_SETTINGS)
+    environment_values["AI_REASONING_EFFORT"] = "low"
+    set_fake_environment(monkeypatch, environment_values)
+
+    settings = llm.read_ai_settings()
+
+    assert settings["reasoning_effort_by_task"] == {"create": "low", "grade": "low"}
+
+
+def test_an_empty_task_setting_means_the_model_default(monkeypatch):
+    # AI_REASONING_EFFORT_CREATE= in .env: present but empty, so the option is not sent at all.
+    environment_values = dict(REQUIRED_SETTINGS)
+    environment_values["AI_REASONING_EFFORT"] = "low"
+    environment_values["AI_REASONING_EFFORT_CREATE"] = ""
+    environment_values["AI_REASONING_EFFORT_GRADE"] = " medium "
+    set_fake_environment(monkeypatch, environment_values)
+
+    settings = llm.read_ai_settings()
+
+    assert settings["reasoning_effort_by_task"] == {"create": "", "grade": "medium"}
+
+
+@pytest.mark.parametrize("task, expected_effort", [("create", ""), ("grade", "low")])
+def test_ask_sends_and_logs_the_reasoning_effort_of_its_task(log_path, monkeypatch, task, expected_effort):
+    fake_world = install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
+
+    llm.ask("Say hi", "tiny@000000", TinyAnswer, task, make_fake_settings())
+    log_line = read_log_lines(log_path)[0]
+
+    assert fake_world.reasoning_efforts_sent == [expected_effort]
+    assert log_line["task"] == task
+    assert log_line["reasoning_effort"] == expected_effort
+
+
+def test_ask_does_not_change_the_settings_it_receives(log_path, monkeypatch):
+    install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
+    settings = make_fake_settings()
+
+    llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", settings)
+
+    assert settings["reasoning_effort"] == ""
+
+
+def test_ask_refuses_an_unknown_task_before_any_request(log_path, monkeypatch):
+    fake_world = install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
+
+    with pytest.raises(ValueError, match="unknown AI task"):
+        llm.ask("Say hi", "tiny@000000", TinyAnswer, "translate", make_fake_settings())
+
+    assert fake_world.call_count == 0
+    assert not log_path.exists()
 
 
 def test_reasoning_effort_is_sent_only_when_it_is_set():

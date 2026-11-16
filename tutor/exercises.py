@@ -83,7 +83,7 @@ def create_gap_exercise(skill_id, level, topic, database_path=db.DEFAULT_DATABAS
 
     # The schema refuses a sentence already saved for this skill: llm.ask() then retries once, like any bad answer.
     draft_schema = make_gap_exercise_draft_schema(used_sentences)
-    draft, model_returned = llm.ask(prompt_text, prompt_version, draft_schema)
+    draft, model_returned = llm.ask(prompt_text, prompt_version, draft_schema, "create")
 
     # The code adds the skill and the level it chose. Pydantic needs field names here.
     gap_exercise = GapExercise(**draft.model_dump(), skill_id=skill_id, level=level)
@@ -129,7 +129,7 @@ def create_gap_exercises(skill_id, level, topic, database_path=db.DEFAULT_DATABA
     prompt_text, prompt_version = prompts.build_gap_exercise_batch_prompt(level, topic, sub_topics, skill,
                                                                           recent_sentences)
     batch_schema = make_gap_exercise_batch_schema(used_sentences)
-    batch, model_returned = llm.ask(prompt_text, prompt_version, batch_schema)
+    batch, model_returned = llm.ask(prompt_text, prompt_version, batch_schema, "create")
 
     # The batch schema already checked that at least one item is valid. Now we split the good from the bad.
     items_asked_for = batch.exercises[:BATCH_SIZE]

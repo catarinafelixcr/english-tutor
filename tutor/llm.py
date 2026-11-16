@@ -1,6 +1,8 @@
 """The only file that talks to the AI. It sends a prompt and returns a validated Pydantic object.
 
-Main function: ask(prompt_text, prompt_version, schema) -> (validated object, model returned)
+Main function: ask(prompt_text, prompt_version, schema, task) -> (validated object, model returned)
+task is "create" (writing exercises, lessons) or "grade" (checking answers): each task has its own reasoning
+effort in .env, so the code never names a provider-specific value.
 
 Rules (PLAN.md, Step 1, and the experiments in JOURNAL.md):
 - The openai client never retries by itself (max_retries=0): every request sent is ours, logged and counted.
@@ -40,6 +42,9 @@ DEFAULT_DAILY_LIMIT_MARGIN = 20
 
 # Words that show a 429 is about the DAILY quota (from Google's docs; the real body is not known yet).
 DAILY_QUOTA_WORDS = ["perday", "per day", "quota_exceeded", "daily"]
+
+# The kinds of AI work. Each one reads AI_REASONING_EFFORT_<TASK> from .env (for example AI_REASONING_EFFORT_CREATE).
+TASKS = ["create", "grade"]
 
 
 # ---------- errors that pages can show ----------
@@ -104,7 +109,32 @@ def read_ai_settings():
     settings["daily_limit_margin"] = read_number_setting("AI_DAILY_LIMIT_MARGIN", DEFAULT_DAILY_LIMIT_MARGIN)
     settings["timeout_seconds"] = read_number_setting("AI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
 
+    settings["reasoning_effort_by_task"] = {}
+
+    for task_name in TASKS:
+        task_reasoning_effort = read_task_reasoning_effort(task_name, settings["reasoning_effort"])
+        settings["reasoning_effort_by_task"][task_name] = task_reasoning_effort
+
     return settings
+
+
+def read_task_reasoning_effort(task_name, general_reasoning_effort):
+    # AI_REASONING_EFFORT_CREATE missing from .env = use AI_REASONING_EFFORT.
+    # AI_REASONING_EFFORT_CREATE= (present but empty) = the model's own default (the option is not sent).
+    setting_text = os.getenv("AI_REASONING_EFFORT_" + task_name.upper())
+
+    if setting_text is None:
+        return general_reasoning_effort
+
+    return setting_text.strip()
+
+
+def settings_for_task(settings, task):
+    # A copy of the settings with the reasoning effort of this task. The original dict is not changed.
+    task_settings = dict(settings)
+    task_settings["reasoning_effort"] = settings["reasoning_effort_by_task"][task]
+
+    return task_settings
 
 
 def read_number_setting(setting_name, default_value):
@@ -296,6 +326,8 @@ def make_log_line(settings, request_info, outcome, seconds_taken, response, erro
         "model_mismatch": model_returned is not None
                           and remove_models_prefix(model_returned) != remove_models_prefix(settings["model"]),
         "prompt_version": request_info["prompt_version"],
+        "task": request_info["task"],
+        "reasoning_effort": settings["reasoning_effort"],
         "schema_name": request_info["schema_name"],
         "attempt_number": request_info["attempt_number"],
         "outcome": outcome,
@@ -400,10 +432,17 @@ def raise_final_error(error_kind, settings, error):
 
 # ---------- the main function ----------
 
-def ask(prompt_text, prompt_version, schema, settings=None):
+def ask(prompt_text, prompt_version, schema, task, settings=None):
     # Returns (validated object, model returned). Raises one of the AIError types above.
+    # task: one of TASKS. It chooses the reasoning effort from .env.
+    if task not in TASKS:
+        raise ValueError("unknown AI task: " + str(task) + ". Use one of: " + ", ".join(TASKS))
+
     if settings is None:
         settings = read_ai_settings()
+
+    # From here on, settings["reasoning_effort"] is the effort of THIS task (sent in the request and logged).
+    settings = settings_for_task(settings, task)
 
     first_request_time = monotonic_seconds()
     attempt_number = 0
@@ -414,7 +453,7 @@ def ask(prompt_text, prompt_version, schema, settings=None):
         stop_if_daily_limit_reached(settings)
 
         attempt_number = attempt_number + 1
-        request_info = {"prompt_text": prompt_text, "prompt_version": prompt_version,
+        request_info = {"prompt_text": prompt_text, "prompt_version": prompt_version, "task": task,
                         "schema_name": schema.__name__, "attempt_number": attempt_number}
         request_start_time = monotonic_seconds()
         response = None

@@ -22,9 +22,11 @@ class FakeAsk:
     def __init__(self, planned_answer):
         self.planned_answer = planned_answer
         self.prompts_received = []
+        self.tasks_received = []
 
-    def ask(self, prompt_text, prompt_version, schema):
+    def ask(self, prompt_text, prompt_version, schema, task):
         self.prompts_received.append(prompt_text)
+        self.tasks_received.append(task)
         validated_answer = schema(**self.planned_answer)
 
         return validated_answer, "fake-test-model"
@@ -198,6 +200,7 @@ def test_create_gap_exercises_saves_five_exercises_from_one_request(database_pat
     saved_exercises = exercises.create_gap_exercises("to_be", "A2", "travel", database_path)
 
     assert len(fake_ask.prompts_received) == 1
+    assert fake_ask.tasks_received == ["create"]
     assert len(saved_exercises) == 5
 
     sub_topics = set()
