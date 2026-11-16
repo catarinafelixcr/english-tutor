@@ -231,6 +231,17 @@ def test_get_learning_skills_never_contains_the_real_general_skills():
         assert general_skill_id not in learning_skill_ids
 
 
+def test_fill_the_gap_skills_never_contain_capitalization_or_general_skills():
+    fill_the_gap_skill_ids = skills.get_fill_the_gap_skill_ids()
+
+    assert "capitalization" not in fill_the_gap_skill_ids
+
+    for general_skill_id in GENERAL_SKILL_IDS:
+        assert general_skill_id not in fill_the_gap_skill_ids
+
+    assert len(fill_the_gap_skill_ids) == len(skills.get_learning_skills()) - 1
+
+
 def test_skills_as_prompt_text_has_one_line_per_skill_with_tag_when():
     skill_without_tag_when = skills.get_skill("to_be")
     skill_with_tag_when = skills.get_skill("spelling")

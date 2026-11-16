@@ -23,7 +23,7 @@ Done on: 2026-11-16
 
 - [x] Part 1: skill list (`tutor/skills.py`, 53 skills) with tests
 - [x] Part 2: database (`tutor/db.py`, `Exercise` and `Attempt` models) with tests
-- [ ] Part 3: `GapExercise` schema and first prompt
+- [x] Part 3: `GapExercise` schema and first prompt
 - [ ] Part 4: AI engine (`tutor/llm.py`), 429 experiment, request counter
 - [ ] Part 5: demo script (`scripts/step1_demo.py`)
 

@@ -17,6 +17,7 @@ Each note says what it is, why I needed it, and how I used it here.
 | 002 | [Virtual environments (venv)](002-virtual-environments.md) | 0 | 2026-11-16 |
 | 003 | [Git basics](003-git-basics.md) | 0 | 2026-11-16 |
 | 004 | [pytest](004-pytest.md) | 1 | 2026-11-16 |
+| 005 | [SQLite](005-sqlite.md) | 1 | 2026-11-16 |
 
 ## Notes I expect to write
 

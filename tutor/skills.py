@@ -223,6 +223,27 @@ def get_learning_skills():
     return learning_skills
 
 
+def get_fill_the_gap_skills():
+    # Learning skills that a fill-the-gap exercise can test. Not capitalization: the code check ignores
+    # capital letters, so a capitalization gap could never be wrong (PLAN.md, Step 2).
+    fill_the_gap_skills = []
+
+    for skill in get_learning_skills():
+        if skill["id"] != "capitalization":
+            fill_the_gap_skills.append(skill)
+
+    return fill_the_gap_skills
+
+
+def get_fill_the_gap_skill_ids():
+    fill_the_gap_skill_ids = []
+
+    for skill in get_fill_the_gap_skills():
+        fill_the_gap_skill_ids.append(skill["id"])
+
+    return fill_the_gap_skill_ids
+
+
 def skills_as_prompt_text(skill_list):
     # One line per skill, for the AI: "to_be | Verb to be | A2 | typical mistake: ... | tag when: ..."
     prompt_lines = []

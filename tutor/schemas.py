@@ -119,3 +119,45 @@ class Attempt(BaseModel):
             raise ValueError("graded by ai: model and prompt_version are required")
 
         return self
+
+
+# ---------- AI answers ----------
+
+class GapExercise(BaseModel):
+    """One fill-the-gap exercise, exactly as the AI must return it."""
+
+    # Unknown fields are refused: if the AI adds or misspells a field, the answer is invalid and llm.py retries.
+    model_config = ConfigDict(extra="forbid")
+
+    sentence: str
+    expected_answer: str
+    accepted_answers: list[str] = Field(default_factory=list)
+    skill_id: str
+    hint: str
+    level: Literal["A2", "B1", "B2", "C1"]
+
+    @field_validator("sentence")
+    @classmethod
+    def sentence_must_have_exactly_one_gap(cls, sentence):
+        # Exactly three underscores in the whole sentence, together: "___". So "____" or "a_b ___" are refused.
+        if sentence.count("_") != 3 or "___" not in sentence:
+            raise ValueError("the sentence needs exactly one gap written as ___ : " + sentence)
+
+        return sentence
+
+    @field_validator("expected_answer")
+    @classmethod
+    def expected_answer_must_not_be_empty(cls, expected_answer):
+        if expected_answer.strip() == "":
+            raise ValueError("the expected answer is empty")
+
+        return expected_answer.strip()
+
+    @field_validator("skill_id")
+    @classmethod
+    def skill_id_must_be_a_fill_the_gap_skill(cls, skill_id):
+        # Only active learning skills, never general skills, never capitalization (PLAN.md, Step 2).
+        if skill_id not in skills.get_fill_the_gap_skill_ids():
+            raise ValueError("this skill id cannot be used in fill the gap: " + skill_id)
+
+        return skill_id
