@@ -256,6 +256,42 @@ def test_fill_the_gap_skills_up_to_b1_are_the_a2_and_b1_skills():
             assert skill in selected_skills, skill["id"] + " is missing"
 
 
+def test_get_levels_from_gives_this_level_and_the_ones_above():
+    assert skills.get_levels_from("A2") == ["A2", "B1", "B2", "C1"]
+    assert skills.get_levels_from("B1") == ["B1", "B2", "C1"]
+    assert skills.get_levels_from("C1") == ["C1"]
+
+
+def test_skills_by_category_has_the_same_skills_as_fill_the_gap():
+    sorted_skill_ids = get_skill_ids_of(skills.get_fill_the_gap_skills_by_category())
+
+    assert sorted(sorted_skill_ids) == sorted(skills.get_fill_the_gap_skill_ids())
+
+
+def test_skills_by_category_follow_the_category_order_then_the_level_order():
+    sorted_skills = skills.get_fill_the_gap_skills_by_category()
+
+    for position in range(1, len(sorted_skills)):
+        previous_skill = sorted_skills[position - 1]
+        skill = sorted_skills[position]
+        previous_category_number = skills.CATEGORIES.index(previous_skill["category"])
+        category_number = skills.CATEGORIES.index(skill["category"])
+
+        assert previous_category_number <= category_number, skill["id"] + " is in the wrong category group"
+
+        if previous_category_number == category_number:
+            previous_level_number = skills.VALID_LEVELS.index(previous_skill["level"])
+            level_number = skills.VALID_LEVELS.index(skill["level"])
+
+            assert previous_level_number <= level_number, skill["id"] + " comes before an easier skill"
+
+
+def test_make_skill_label_shows_category_name_and_level():
+    label = skills.make_skill_label(skills.get_skill("much_many"))
+
+    assert label == "Nouns and quantifiers · " + skills.get_skill("much_many")["name"] + " (A2)"
+
+
 def test_skills_as_prompt_text_has_one_line_per_skill_with_tag_when():
     skill_without_tag_when = skills.get_skill("to_be")
     skill_with_tag_when = skills.get_skill("spelling")

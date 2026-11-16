@@ -256,6 +256,34 @@ def get_fill_the_gap_skills_up_to_level(level):
     return selected_skills
 
 
+def get_levels_from(level):
+    # This level and the ones above it: "B1" → ["B1", "B2", "C1"]. For the level selector in Practice:
+    # once I choose a skill, I can choose a higher level than the skill, never a lower one.
+    return VALID_LEVELS[VALID_LEVELS.index(level):]
+
+
+def category_and_level_order(skill):
+    # Used to sort skills: first by the order of CATEGORIES, then from A2 to C1.
+    return CATEGORIES.index(skill["category"]), VALID_LEVELS.index(skill["level"])
+
+
+def get_fill_the_gap_skills_by_category():
+    # The fill-the-gap skills for the skill selector: grouped by category (verbs first), easy levels first.
+    # sorted() keeps the order of skills.py when two skills have the same category and level.
+    return sorted(get_fill_the_gap_skills(), key=category_and_level_order)
+
+
+def make_category_title(category):
+    # "nouns_and_quantifiers" → "Nouns and quantifiers"
+    return category.replace("_", " ").capitalize()
+
+
+def make_skill_label(skill):
+    # The text of one option in the skill selector: "Verbs · Present perfect (B1)".
+    # Streamlit's selectbox has no groups, so the category at the start does the grouping.
+    return make_category_title(skill["category"]) + " · " + skill["name"] + " (" + skill["level"] + ")"
+
+
 def skills_as_prompt_text(skill_list):
     # One line per skill, for the AI: "to_be | Verb to be | A2 | typical mistake: ... | tag when: ..."
     prompt_lines = []
