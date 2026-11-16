@@ -3,8 +3,19 @@
 This file sits between the screens (pages/) and the AI (llm.py), so the pages stay thin (CLAUDE.md, rule 7).
 """
 
+import re
+
 # Curly apostrophes that phone keyboards type. They all become the straight one: ’ → '
 CURLY_APOSTROPHES = ["’", "‘", "ʼ"]
+
+# Double quote marks the AI may put around a quote. They are removed before comparing texts.
+DOUBLE_QUOTE_MARKS = ["\"", "“", "”", "«", "»"]
+
+# Punctuation removed at the END of a quote or a sentence before comparing: "finish." = "finish".
+SENTENCE_END_PUNCTUATION = ".,!?;:"
+
+# The verb in brackets right after the gap: "___ (finish)". It is a clue, not part of the sentence.
+GAP_WITH_BRACKET_PATTERN = r"___\s*\([^)]*\)"
 
 # Punctuation removed at the END of an answer only: "goes." = "goes". Never inside ("don't", "e.g").
 FINAL_PUNCTUATION = ".,"
@@ -77,3 +88,130 @@ def check_answer_in_code(your_answer, exercise):
         return CAPITALIZATION_SLIP, capitalization_match
 
     return NO_MATCH, None
+
+
+# ---------- the full sentence with my answer ----------
+
+def build_sentence_with_answer(sentence, your_answer):
+    # "She has ___ (finish) the report." + "finish" → "She has finish the report."
+    # The verb in brackets is removed: a quote "finish" must not be found in the clue "(finish)".
+    sentence_without_bracket = re.sub(GAP_WITH_BRACKET_PATTERN, "___", sentence, count=1)
+    sentence_with_answer = sentence_without_bracket.replace("___", clean_answer(your_answer), 1)
+
+    return sentence_with_answer
+
+
+# ---------- checking the AI's quotes (mistake_text) ----------
+
+def clean_for_comparing(text):
+    # Ignores what never matters in a quote: capital letters, quote marks, apostrophe styles, extra spaces,
+    # and punctuation at the end. Apostrophes INSIDE words stay ("don't").
+    cleaned_text = text.lower()
+
+    for curly_apostrophe in CURLY_APOSTROPHES:
+        cleaned_text = cleaned_text.replace(curly_apostrophe, "'")
+
+    for quote_mark in DOUBLE_QUOTE_MARKS:
+        cleaned_text = cleaned_text.replace(quote_mark, " ")
+
+    cleaned_text = " ".join(cleaned_text.split())
+    cleaned_text = cleaned_text.rstrip(SENTENCE_END_PUNCTUATION).strip()
+
+    # Single quotes AROUND the whole quote ('has finish') are quote marks, not apostrophes.
+    if len(cleaned_text) >= 2 and cleaned_text.startswith("'") and cleaned_text.endswith("'"):
+        cleaned_text = cleaned_text[1:-1].strip()
+
+    return cleaned_text
+
+
+def make_whole_words_pattern(cleaned_words):
+    # Like \b, but it also works when the words start or end with an apostrophe or a hyphen.
+    # (?<!\w) = no letter just before; (?!\w) = no letter just after. "go" is found in "I go now", not in "going".
+    return r"(?<!\w)" + re.escape(cleaned_words) + r"(?!\w)"
+
+
+def quote_is_in_sentence(quote, sentence_with_answer):
+    cleaned_quote = clean_for_comparing(quote)
+
+    if cleaned_quote == "":
+        return False
+
+    pattern = make_whole_words_pattern(cleaned_quote)
+
+    return re.search(pattern, clean_for_comparing(sentence_with_answer)) is not None
+
+
+def find_bad_quotes(grade, sentence_with_answer):
+    # The names of the quotes that are NOT words of my sentence. An empty list = all quotes are good.
+    bad_quote_names = []
+
+    if grade.verdict != "correct" and not quote_is_in_sentence(grade.mistake_text, sentence_with_answer):
+        bad_quote_names.append("mistake_text")
+
+    detected_mistake = grade.detected_mistake
+
+    if detected_mistake is not None and not quote_is_in_sentence(detected_mistake.mistake_text, sentence_with_answer):
+        bad_quote_names.append("detected_mistake.mistake_text")
+
+    return bad_quote_names
+
+
+def use_my_answer_as_bad_quotes(grade, bad_quote_names, your_answer):
+    # The fallback after 2 bad answers: my answer replaces each bad quote, so the screen still shows the
+    # explanation (PLAN.md: "never block me"). Returns a NEW grade; the old one is not changed.
+    my_answer = clean_answer(your_answer)
+    changed_grade = grade
+
+    if "mistake_text" in bad_quote_names:
+        changed_grade = changed_grade.model_copy(update={"mistake_text": my_answer})
+
+    if "detected_mistake.mistake_text" in bad_quote_names:
+        changed_detected_mistake = changed_grade.detected_mistake.model_copy(update={"mistake_text": my_answer})
+        changed_grade = changed_grade.model_copy(update={"detected_mistake": changed_detected_mistake})
+
+    return changed_grade
+
+
+# ---------- checking corrected_sentence (only logged, never retried) ----------
+
+def replace_quote(cleaned_sentence, quote, correction):
+    # Replaces the FIRST place where the quote appears (whole words) with the correction.
+    # Returns the sentence unchanged when the quote is not there.
+    cleaned_quote = clean_for_comparing(quote)
+
+    if cleaned_quote == "":
+        return cleaned_sentence
+
+    found_quote = re.search(make_whole_words_pattern(cleaned_quote), cleaned_sentence)
+
+    if found_quote is None:
+        return cleaned_sentence
+
+    text_before = cleaned_sentence[:found_quote.start()]
+    text_after = cleaned_sentence[found_quote.end():]
+    corrected_text = text_before + clean_for_comparing(correction) + text_after
+
+    return corrected_text
+
+
+def build_expected_corrected_sentence(grade, sentence_with_answer):
+    # My sentence with each quote replaced by its correction: what corrected_sentence should be.
+    # Compared after clean_for_comparing(), so it is in small letters.
+    expected_sentence = clean_for_comparing(sentence_with_answer)
+
+    if grade.verdict != "correct":
+        expected_sentence = replace_quote(expected_sentence, grade.mistake_text, grade.correction)
+
+    if grade.detected_mistake is not None:
+        detected_mistake = grade.detected_mistake
+        expected_sentence = replace_quote(expected_sentence, detected_mistake.mistake_text, detected_mistake.correction)
+
+    return expected_sentence
+
+
+def corrected_sentence_matches(grade, sentence_with_answer):
+    # True if corrected_sentence = my sentence with the corrections applied (ignoring capitals, quotes, spaces,
+    # final punctuation). For a correct answer with no slip, corrected_sentence must be my own sentence.
+    expected_sentence = build_expected_corrected_sentence(grade, sentence_with_answer)
+
+    return clean_for_comparing(grade.corrected_sentence) == expected_sentence
