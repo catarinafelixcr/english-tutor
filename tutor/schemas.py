@@ -4,6 +4,7 @@ Pydantic fields need type annotations: this is the one exception to the "no type
 Creating a model needs field names (Attempt(verdict="wrong", ...)): Pydantic does not accept positional values.
 """
 
+import re
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -29,6 +30,22 @@ def convert_to_utc(moment):
         raise ValueError("a date needs a time zone, for example datetime.now(timezone.utc)")
 
     return moment.astimezone(timezone.utc)
+
+
+def normalize_answer(answer_text):
+    # For comparing answers: small letters, no spaces at the ends, one space between words.
+    small_letters_text = answer_text.strip().lower()
+    normalized_text = " ".join(small_letters_text.split())
+
+    return normalized_text
+
+
+def contains_whole_words(text, words):
+    # True if "words" appears in "text" as whole words, ignoring capital letters.
+    # "am" is found in "I am here" but not in "the same verb".
+    pattern = r"\b" + re.escape(normalize_answer(words)) + r"\b"
+
+    return re.search(pattern, normalize_answer(text)) is not None
 
 
 # ---------- database records ----------
@@ -161,3 +178,42 @@ class GapExercise(BaseModel):
             raise ValueError("this skill id cannot be used in fill the gap: " + skill_id)
 
         return skill_id
+
+    @field_validator("hint")
+    @classmethod
+    def hint_must_not_be_empty(cls, hint):
+        if hint.strip() == "":
+            raise ValueError("the hint is empty")
+
+        return hint.strip()
+
+    @model_validator(mode="after")
+    def accepted_answers_must_be_clean(self):
+        seen_answers = [normalize_answer(self.expected_answer)]
+
+        for accepted_answer in self.accepted_answers:
+            normalized_accepted_answer = normalize_answer(accepted_answer)
+
+            if normalized_accepted_answer == "":
+                raise ValueError("accepted_answers has an empty item")
+
+            if normalized_accepted_answer == normalize_answer(self.expected_answer):
+                raise ValueError("accepted_answers repeats the expected answer: " + accepted_answer)
+
+            if normalized_accepted_answer in seen_answers:
+                raise ValueError("accepted_answers has a duplicate: " + accepted_answer)
+
+            seen_answers.append(normalized_accepted_answer)
+
+        return self
+
+    @model_validator(mode="after")
+    def hint_must_not_give_the_answer(self):
+        if contains_whole_words(self.hint, self.expected_answer):
+            raise ValueError("the hint gives the expected answer: " + self.hint)
+
+        for accepted_answer in self.accepted_answers:
+            if contains_whole_words(self.hint, accepted_answer):
+                raise ValueError("the hint gives an accepted answer: " + self.hint)
+
+        return self

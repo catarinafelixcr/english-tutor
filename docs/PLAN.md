@@ -116,12 +116,21 @@ This step has no screen to show, but every later step depends on it.
 - [ ] Read the provider, model name and key from `.env`.
 - [ ] Ask for structured output with the Pydantic schema (`parse()` with `response_format`, documented by Gemini as beta). Always validate with Pydantic too. On a validation error, retry once. If Gemini rejects the schema in a real test, switch to JSON mode plus validation.
 - [ ] Test if the schema can limit `skill_id` to an enum of the active skill ids. If Gemini accepts it, use it. Keep the code validation in all cases.
-- [ ] On a rate-limit error (HTTP 429): if the local counter already reached `AI_DAILY_LIMIT`, or the error says it is the daily quota, stop at once with a clear message. Otherwise wait (about 2s, then 4s) and retry at most 2 times.
+- [ ] On a rate-limit error (HTTP 429): if the local counter already reached `AI_DAILY_LIMIT`, or the error says it is the daily quota, stop at once with a clear message. Otherwise retry at most 2 times: after 2 s, then 4 s. If the error body gives a wait time (`retryDelay`), use it. If the wait is longer than about 10 seconds, do not wait: raise an error that says how many seconds to wait.
+- [ ] A 503 (UNAVAILABLE, "high demand") is handled like a per-minute 429. Retries have a total time budget: stop when about 20 seconds have passed since the first request (counting the next wait), and raise `AIUnavailableError`. Timeouts are not retried.
+- [ ] The code that reads error bodies accepts both formats (a list with one item, and a plain dict), with a test for each. An error it cannot read becomes `AIUnavailableError`, with the full body in the log. It must never crash.
+- [ ] Settings in `.env`: `AI_TIMEOUT_SECONDS=30`, `AI_REASONING_EFFORT=low` (empty = Gemini's default).
+- [ ] Create the client with `max_retries=0` (the `openai` client retries 429 twice by itself by default, which our log and counter would not see) and the timeout from `AI_TIMEOUT_SECONDS`. A timeout becomes `AIUnavailableError`.
+- [ ] A wrong key or a wrong model name raises `AIConfigurationError` with the message "check your key and model in .env" (Google can answer a bad key with 400, not only 401/403).
+- [ ] Any other 400 raises `AIRequestRejectedError`: "the app sent a request Google refused, see the log". It is never retried, because retrying later would never fix it.
+- [ ] When the error says "wait N seconds", the exception also carries the number as a value (`retry_after_seconds`), so a page can use it.
+- [ ] Log the token counts (`usage`) when Gemini returns them.
+- [ ] Experiments before writing `llm.py` (`scripts/part4_experiments.py`): E1 `parse()` with `GapExercise`; E2 `skill_id` as an enum; E3 the model name returned; E4 `reasoning_effort="low"` vs default, 3 requests each; E5 the 429 experiment; E6 a wrong key; E7 a wrong model name. Write the results in docs/JOURNAL.md.
 - [ ] 429 experiment: send 6 tiny requests in one minute to `gemini-3.8-flash` (5 RPM, its own quota, not Lite's) to see the real error body. Write what we learn in docs/JOURNAL.md.
 - [ ] Save every request to `logs/ai_log.jsonl` (one JSON per line): UTC time, model asked (from `.env`), model returned (from Gemini's answer; if different, ignoring a `models/` prefix, mark it as a warning), prompt version, prompt, answer, full error body. Never the API key, and a test proves it. `logs/` is in `.gitignore`.
 - [ ] The `model` column in `exercises` and `attempts` saves the model returned, because that model really did the work.
-- [ ] Write `count_requests_today(model)`: requests made today for one model, from the log. The day starts at midnight `America/Los_Angeles` (Gemini resets RPD then), using `zoneinfo` + `tzdata`. It is an estimate: it does not see requests made outside this app.
-- [ ] Read the daily limit from `.env`: `AI_DAILY_LIMIT=500`, the real number from the AI Studio rate limit page for `gemini-3.5-flash-lite`.
+- [ ] Write `count_requests_today(model)`: requests made today for one model, from the log. The day starts at midnight `America/Los_Angeles` (Gemini resets RPD then), using `zoneinfo` + `tzdata`. It is an estimate: it does not see requests made outside this app. It counts every request sent, including failed ones and retries (one log line = one request sent).
+- [ ] Read the daily limit from `.env`: `AI_DAILY_LIMIT=500`, the real number from the AI Studio rate limit page for `gemini-3.5-flash-lite`. The app stops a little before it: `AI_DAILY_LIMIT_MARGIN=20`, because the counter does not see requests made outside `llm.py` (scripts, experiments, AI Studio). Failed requests use quota too (seen in AI Studio after E5).
 
 **Skill list (`tutor/skills.py`)**
 
@@ -151,6 +160,9 @@ This step has no screen to show, but every later step depends on it.
 - [ ] Write the helper functions `save_exercise()`, `save_attempt()`, `get_attempts()` (returns a pandas DataFrame) and `init_db()`.
 - [ ] Write pytest tests with a temporary database: save one attempt and read it back; an unknown exercise\_id is refused; an unknown skill\_id is refused; `init_db()` twice gives no duplicates; a skill missing from `skills.py` raises an error.
 
+- [ ] `GapExercise` checks: one `___`, expected answer not empty, a fill-the-gap skill id, hint not empty, the hint does not contain the expected answer or an accepted answer (whole words), accepted answers with no empty items, no duplicates and not the expected answer.
+- [ ] The demo script chooses ONE random A2 fill-the-gap skill in code and passes it to the prompt (the AI does not choose the skill).
+
 **Done when:** a small script asks the AI for one fill-the-gap sentence, gets a valid object with a skill id from your list, and saves it in the database.
 
 ## Step 2 - Practice (fill the gap)
@@ -160,7 +172,8 @@ This is the first version you can really study with, and it copies the page I bu
 **Create sentences**
 
 - [ ] Write the Pydantic schema `GapExercise`: sentence with `___`, expected answer, other accepted answers, skill id, hint, level.
-- [ ] Write the prompt in `prompts.py`. It receives the level, the topic and the skill list from `get_learning_skills()` (never the `general` skills), and returns 5 exercises. Fill the gap never uses `capitalization` (the code check ignores capital letters, so it could never be wrong), and the skill selector does not show it for fill the gap.
+- [ ] The CODE chooses the skill, never the AI: my choice in the skill selector, or the tutor's choice (Step 4). The prompt gets ONE skill (with its typical mistake and `tag_when`); the AI only writes the sentences. For variety, the code also sends a random sub-topic and the last few sentences on that skill, to avoid. (Found in the Step 1 experiments: when the AI chose, it always wrote "My brother usually ___ (wake) up".)
+- [ ] Write the prompt in `prompts.py`. It receives the level, the topic, the sub-topic, ONE skill and the sentences to avoid, and returns 5 exercises. Fill the gap never uses `capitalization` (the code check ignores capital letters, so it could never be wrong), and the skill selector does not show it for fill the gap. The caller passes only skills at or below the requested level, and checks that each `exercise.level` is the level it asked for (drop the ones that are not).
 - [ ] Check each exercise in code: exactly one `___`, a skill id that exists, an answer that is not empty. Drop the bad ones.
 - [ ] Validate each exercise of a batch alone: parse the answer as a list of raw items, then validate each item with `GapExercise`. Drop and log the invalid ones, keep the rest. (With `list[GapExercise]`, one bad item would fail the whole batch.)
 - [ ] Save the good ones in `exercises` and avoid sentences you already saw.
@@ -198,6 +211,7 @@ This is the first version you can really study with, and it copies the page I bu
 - [ ] Write `eval/run_eval.py`. It grades all rows with the AI and prints the agreement and a confusion matrix.
 - [ ] `run_eval.py` appends each run to `eval/results.csv`: date (UTC), eval set (gap, writing, translate), model, prompt version, number of rows, agreement. The file goes in git. The Step 8 chart "grader agreement per prompt version" reads it.
 - [ ] Improve the prompt, or change the model, until agreement is 90% or more.
+- [ ] Review 20 generated exercises by hand and count how many really test the skill that was asked. The AI returns a `GapExerciseDraft` and the code adds `skill_id` and `level`, so this is the only check that the AI wrote about the right skill. Write the number in docs/JOURNAL.md.
 
 **Done when:** you can do 20 sentences without an error, every attempt is in the database with a skill tag, and the grader agrees with you on 45 of the 50 gold rows.
 

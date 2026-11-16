@@ -65,6 +65,61 @@ def test_an_unknown_field_from_the_ai_is_refused():
         GapExercise(**exercise_values)
 
 
+def test_an_empty_hint_is_refused():
+    exercise_values = make_gap_exercise_values()
+    exercise_values["hint"] = "  "
+
+    with pytest.raises(ValidationError, match="hint is empty"):
+        GapExercise(**exercise_values)
+
+
+@pytest.mark.parametrize("bad_hint", ["Use works.", "WORKS with s", "The answer is: works!"])
+def test_a_hint_with_the_expected_answer_is_refused(bad_hint):
+    exercise_values = make_gap_exercise_values()
+    exercise_values["hint"] = bad_hint
+
+    with pytest.raises(ValidationError, match="gives the expected answer"):
+        GapExercise(**exercise_values)
+
+
+def test_a_hint_with_an_accepted_answer_is_refused():
+    exercise_values = make_gap_exercise_values()
+    exercise_values["sentence"] = "I ___ my keys yesterday."
+    exercise_values["expected_answer"] = "lost"
+    exercise_values["accepted_answers"] = ["misplaced"]
+    exercise_values["skill_id"] = "irregular_verbs"
+    exercise_values["hint"] = "Think of misplaced, past form."
+
+    with pytest.raises(ValidationError, match="gives an accepted answer"):
+        GapExercise(**exercise_values)
+
+
+def test_a_hint_with_the_answer_inside_another_word_is_accepted():
+    # Expected "am": the hint "the same verb" must be accepted, because "am" is not a whole word there.
+    exercise_values = make_gap_exercise_values()
+    exercise_values["sentence"] = "I ___ 25 years old."
+    exercise_values["expected_answer"] = "am"
+    exercise_values["skill_id"] = "to_be"
+    exercise_values["hint"] = "the same verb as in 'I ___ happy'"
+
+    gap_exercise = GapExercise(**exercise_values)
+
+    assert gap_exercise.expected_answer == "am"
+
+
+@pytest.mark.parametrize("bad_accepted_answers, error_text", [
+    ([""], "empty item"),
+    (["Works "], "repeats the expected answer"),
+    (["is working", "is  working"], "duplicate"),
+])
+def test_bad_accepted_answers_are_refused(bad_accepted_answers, error_text):
+    exercise_values = make_gap_exercise_values()
+    exercise_values["accepted_answers"] = bad_accepted_answers
+
+    with pytest.raises(ValidationError, match=error_text):
+        GapExercise(**exercise_values)
+
+
 def test_an_unknown_level_is_refused():
     exercise_values = make_gap_exercise_values()
     exercise_values["level"] = "C2"

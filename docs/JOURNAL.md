@@ -5,6 +5,80 @@ Newest entry at the top. One entry per work session.
 
 ---
 
+## 2026-11-16 - Step 1: skill list, database, first prompt, AI experiments
+
+**What I did**
+
+- Planned Step 1 in detail (many of my own rules added to PLAN.md: `source`, `submission_id`, naturalness,
+  `mistake_text` / `correction`, prompt versions from the template, UTC dates, foreign keys, safe `init_db()`).
+- Part 1: `tutor/skills.py`, 53 skills (50 to learn + 3 general), with my own real mistakes as examples and
+  `tag_when` for skills that overlap. 22 tests.
+- Part 2: `tutor/db.py` (6 tables, `connect()`, `init_db()`, `save_exercise()`, `save_attempt()`, `get_attempts()`)
+  and the Pydantic models `Exercise` and `Attempt`. 25 tests, all on a temporary database.
+- Part 3: `GapExercise`, the first prompt, automatic `prompt_version` (name + hash of the template). Tests: 74 in total.
+- Part 4, experiments with the real API (`scripts/part4_experiments.py`), before writing `llm.py`.
+- Learning notes 004 (pytest) and 005 (SQLite).
+
+**AI experiments (Part 4) — what we learned**
+
+| # | Question | Result |
+| --- | --- | --- |
+| E1 | Does `parse()` with a Pydantic model work on Gemini? | Yes. Valid `GapExercise`, our validators ran. 1.8 s, 1069 prompt tokens (mostly the skill list) + 84 answer tokens |
+| E2 | Can `skill_id` be an enum of the 49 fill-the-gap ids? | Yes, Gemini accepts the schema (idea A) |
+| E3 | Which model name does Gemini return? | Exactly `gemini-3.5-flash-lite`, the same as `.env`, no `models/` prefix |
+| E4 | `reasoning_effort="low"` vs default (3 + 3 requests) | low 0.9 s vs default 1.6 s on average, same answer size. Quality to compare on the gold file in Step 2 |
+| E5 | Real 429 body (6 requests at once on `gemini-3.8-flash`) | **No 429.** 4 × 503 UNAVAILABLE "high demand" (3.6–42 s) and 2 timeouts at 60 s. Not repeated today |
+| E6 | Wrong key | **400** BadRequest, INVALID_ARGUMENT, "Please pass a valid API key" (not 401/403) |
+| E7 | Wrong model name | 404 NotFound, NOT_FOUND |
+
+Other findings:
+
+- Gemini error bodies are a **list with one item**, `[{'error': {...}}]`, not a plain dict. Code must read both.
+- The 503 body had no wait time and no `retry-after` header. The real 429 format is still unknown: the log will
+  keep the full body the first time one happens.
+- The `openai` client retries 429 by itself 2 times by default: we use `max_retries=0`, so every request is ours,
+  logged and counted.
+- E1, E2 and E4 all wrote almost the same sentence ("My brother usually ___ (wake) up..."), because the AI chose
+  the skill itself and always picked the easiest one.
+- Total cost: 8 Lite requests (of 500) and 6 Flash requests (of 20).
+- **Failed requests DO use quota.** AI Studio after E5: Gemini 3.8 Flash showed **6 / 5 RPM in red**, so all 6
+  failed requests (4 × 503 and 2 timeouts) were counted. Lite showed 6 / 15 RPM. This confirms the rules
+  "count every request sent, including failed ones and retries" and "few retries, with a time budget".
+- The experiment script does not use `llm.py`, so its requests are not in the log: the counter cannot see them.
+  That is why `AI_DAILY_LIMIT_MARGIN=20`: the app stops 20 requests before the real limit.
+
+**Decisions and why**
+
+| Decision | Why |
+| --- | --- |
+| The CODE chooses the skill, the AI only writes the sentence | The AI always chose the same easy skill. The tutor must decide what I practise (selector, or weak skills) |
+| Variety: a random sub-topic and the last sentences to avoid go in the prompt | Avoid the same sentence again and again |
+| 503 is handled like a per-minute 429: at most 2 retries (2 s, then 4 s), total budget about 20 s | Google says 503 is temporary. A retry budget stops the app from waiting too long |
+| A wait time in the error body (`retryDelay`) is used if present; more than ~10 s → do not wait, tell me how long | We have not seen a real 429 yet, so we do not guess its format |
+| Timeouts are not retried; timeout 30 s, setting `AI_TIMEOUT_SECONDS` | Lite answers in 1–2 s. A 30 s wait is already too long |
+| A wrong key or model → `AIConfigurationError` "check your key and model in .env", by status AND message | A wrong key is a 400, and other 400s exist (for example a schema Gemini rejects) |
+| `reasoning_effort` becomes a setting `AI_REASONING_EFFORT` | 2× faster in E4; quality to check on the gold file |
+| `skill_id` enum: yes, Gemini accepts it | Will be used where the AI tags skills (grader, Writing). Code validation stays |
+| `GapExercise`: the hint must not contain the answer (whole words), clean accepted answers | Found while reviewing Part 3 |
+| No "In my own words" section in learning notes | My choice |
+| Tests use a fake model name (`fake-test-model`) | Tests must not depend on `.env` |
+
+**Problems and how I solved them**
+
+- I changed `skills.py` without noticing (one extra space). `git status` showed it, `git diff` showed what it was, `git restore` undid it.
+- The missing final newline (ruff W292) comes from Claude's file-writing tool, not from my editor.
+- My first counts were wrong twice (51 → 49 fill-the-gap skills; 47 → 46 tests). Tests and checking by hand caught them.
+
+**Open questions**
+
+- The real 429 body format.
+
+**Next**
+
+- Part 4: write `tutor/llm.py` with the fake-AI tests. Then Part 5: the demo script.
+
+---
+
 ## 2026-11-16 - Step 0: setup done, app on GitHub
 
 **What I did**
