@@ -1,3 +1,8 @@
+# Settings for pytest: add the project folder to the import path, so tests can write "from tutor import skills".
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+
 # Settings for ruff, the tool that checks the code for problems.
 # We use only "ruff check" (find problems), not "ruff format" (rewrite layout).
 
