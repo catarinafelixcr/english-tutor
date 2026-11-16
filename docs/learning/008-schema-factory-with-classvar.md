@@ -7,16 +7,12 @@
 ## what it is
 
 A **schema factory** is a function that builds and returns a new Pydantic class each time it is called.
-A **`ClassVar`** is a value that belongs to the class itself, not a field: Pydantic does not validate it, does
-not expect it in the data, and does not put it in the JSON schema. Together, they give a schema that "knows"
-some extra information (here, the sentences already saved) without the AI ever seeing it.
+A **`ClassVar`** is a value that belongs to the class itself, not a field: Pydantic does not validate it, does not expect it in the data, and does not put it in the JSON schema. Together, they give a schema that "knows" some extra information (here, the sentences already saved) without the AI ever seeing it.
 
 ## why I needed it
 
 Rule: if the AI writes a sentence I already have for this skill, the answer is invalid and must be retried once.
-`llm.ask()` already retries once when Pydantic refuses an answer. So the easiest way was to make **Pydantic
-itself** refuse a repeated sentence. But a normal schema does not know which sentences are in my database, and
-the list changes for every skill and every call.
+`llm.ask()` already retries once when Pydantic refuses an answer. So the easiest way was to make **Pydantic itself** refuse a repeated sentence. But a normal schema does not know which sentences are in my database, and the list changes for every skill and every call.
 
 ## how I used it here
 
@@ -56,12 +52,9 @@ draft_schema = make_gap_exercise_draft_schema(used_sentences)
 draft, model_returned = llm.ask(prompt_text, prompt_version, draft_schema)
 ```
 
-The JSON schema sent to Gemini is exactly the same as before (a test checks that the fields are only
-sentence, expected_answer, accepted_answers, hint). If Gemini repeats a sentence, `parse()` raises a
-`ValidationError`, and `llm.ask()` retries once, logs it as `invalid_answer` and counts it, with no new code.
+The JSON schema sent to Gemini is exactly the same as before (a test checks that the fields are only sentence, expected_answer, accepted_answers, hint). If Gemini repeats a sentence, `parse()` raises a `ValidationError`, and `llm.ask()` retries once, logs it as `invalid_answer` and counts it, with no new code.
 
-`ClassVar[tuple]` is a type annotation, which my style rules normally avoid. Here Pydantic needs it: without
-`ClassVar`, Pydantic would think `used_sentences` is a field and send it to the AI.
+`ClassVar[tuple]` is a type annotation, which my style rules normally avoid. Here Pydantic needs it: without `ClassVar`, Pydantic would think `used_sentences` is a field and send it to the AI.
 
 ## mistakes I made and how I fixed them
 
@@ -71,8 +64,7 @@ sentence, expected_answer, accepted_answers, hint). If Gemini repeats a sentence
   Why: inside a class body, a name that is assigned in the class is looked up in the class and in the module,
   **never in the function around the class**. So the right side could not see the argument.
   Fix: give the argument another name (`sentences_already_saved`).
-- A test checks that the plain `GapExerciseDraft` still has an empty list after the factory runs, so one call
-  can never change the base class for the next call.
+- A test checks that the plain `GapExerciseDraft` still has an empty list after the factory runs, so one call can never change the base class for the next call.
 
 ## links
 
