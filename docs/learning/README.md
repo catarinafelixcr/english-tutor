@@ -15,6 +15,7 @@ Each note says what it is, why I needed it, and how I used it here.
 | --- | --- | --- | --- |
 | 001 | [CLAUDE.md and project memory](001-claude-md-and-project-memory.md) | 0 | 2026-11-13 |
 | 002 | [Virtual environments (venv)](002-virtual-environments.md) | 0 | 2026-11-16 |
+| 003 | [Git basics](003-git-basics.md) | 0 | 2026-11-16 |
 
 ## Notes I expect to write
 

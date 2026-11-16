@@ -1,23 +1,23 @@
 # Progress
 
-Current step: **Step 0 – Setup**
+Current step: **Step 1 - Foundation** (not started)
 
 Tick a task when it is finished. Write the date when a step is done.
 
 ## Step 0 – Setup
 
-- [ ] GitHub repo created (README, MIT license, Python .gitignore)
+- [x] GitHub repo created (README, MIT license, Python .gitignore)
 - [x] Virtual environment created
 - [x] requirements.txt written and installed
 - [x] Gemini API key created and tested (model gemini-3.5-flash-lite: 15 RPM, 500 RPD)
-- [ ] .env created, .env.example committed, .env and data/ in .gitignore
+- [x] .env created, .env.example committed, .env and data/ in .gitignore
 - [x] Folders created (pages, tutor, data, tests, eval, docs)
 - [x] app.py shows the menu with one empty page per section
-- [ ] First commit pushed
+- [x] First commit pushed
 
 Done when: the app opens in the browser with all menu items, and the repo is on GitHub.
 
-Done on:
+Done on: 2026-11-16
 
 ## Step 1 – Foundation
 
