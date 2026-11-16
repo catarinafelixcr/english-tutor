@@ -36,7 +36,7 @@ Newest entry at the top. One entry per work session.
 
 - `Error code: 404` with `gemini-2.5-flash`: the model name no longer exists. Fix: `check_ai.py` now lists the Flash models my key can use when this happens.
 - I renamed `.env.example` to `.env` instead of copying it. Fix: `git restore .env.example`. The file now says "COPY (do not rename)".
-- ruff W292 "no newline at end of file" in all Python files. Fix: `ruff check --fix .`. Maybe my editor removes the final line break; check the VS Code setting "Insert Final Newline" if it happens again.
+- ruff W292 "no newline at end of file" in all Python files. Fix: `ruff check --fix .`. Later found: the cause is Claude Code's file-writing tool (it happens on every file Claude creates), not my editor. So `ruff check --fix .` after Claude writes a file.
 - The AI's first answer was correct but felt too abrupt ("No, it is not correct..."). To solve in Step 2: tone instructions in the prompts (kind, explain the Portuguese reason).
 
 **Next**

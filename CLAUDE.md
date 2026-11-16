@@ -79,6 +79,7 @@ docs/             plan, progress, journal and learning notes
 8. Small commits, one task each, with a clear message. Ask before `git push`.
    No "Co-Authored-By: Claude" line (or any Claude attribution) in commit messages or pull requests.
 9. Do not add a new library without asking first.
+10. Skill ids are never renamed or deleted (old attempts point to them). To retire a skill, set `"active": False` in `tutor/skills.py`. `init_db()` must be safe to run many times: no duplicates, nothing deleted.
 
 ## Code style (my preferences)
 

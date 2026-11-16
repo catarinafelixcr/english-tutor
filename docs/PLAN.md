@@ -1,4 +1,4 @@
-# AI English Tutor – Build Plan
+# AI English Tutor - Build Plan
 
 Nov 13, 2026 · @Catarina Cruz
 
@@ -114,47 +114,73 @@ This step has no screen to show, but every later step depends on it.
 - [ ] Write one function `ask(prompt, schema)` that sends a prompt and returns a validated Pydantic object.
 - [ ] Use the `openai` Python client with a configurable `base_url`, so the same code talks to Gemini, Groq or Ollama.
 - [ ] Read the provider, model name and key from `.env`.
-- [ ] Ask for structured JSON output with the Pydantic schema, then validate the answer. On a validation error, retry once.
-- [ ] On a rate-limit error (HTTP 429), wait and retry up to 3 times, then show a friendly message.
-- [ ] Save every prompt and answer to a log file, so you can debug bad AI answers later.
-- [ ] Save the real model name returned by the API with each answer, to see if the model changes.
-- [ ] Write `count_requests_today()`: the number of AI requests made today, from the log. Read the daily limit from `.env` (`AI_DAILY_LIMIT=500`).
+- [ ] Ask for structured output with the Pydantic schema (`parse()` with `response_format`, documented by Gemini as beta). Always validate with Pydantic too. On a validation error, retry once. If Gemini rejects the schema in a real test, switch to JSON mode plus validation.
+- [ ] Test if the schema can limit `skill_id` to an enum of the active skill ids. If Gemini accepts it, use it. Keep the code validation in all cases.
+- [ ] On a rate-limit error (HTTP 429): if the local counter already reached `AI_DAILY_LIMIT`, or the error says it is the daily quota, stop at once with a clear message. Otherwise wait (about 2s, then 4s) and retry at most 2 times.
+- [ ] 429 experiment: send 6 tiny requests in one minute to `gemini-3.8-flash` (5 RPM, its own quota, not Lite's) to see the real error body. Write what we learn in docs/JOURNAL.md.
+- [ ] Save every request to `logs/ai_log.jsonl` (one JSON per line): UTC time, model asked, model returned, prompt version, prompt, answer, full error body. Never the API key, and a test proves it. `logs/` is in `.gitignore`.
+- [ ] Write `count_requests_today(model)`: requests made today for one model, from the log. The day starts at midnight `America/Los_Angeles` (Gemini resets RPD then), using `zoneinfo` + `tzdata`. It is an estimate: it does not see requests made outside this app.
+- [ ] Read the daily limit from `.env`: `AI_DAILY_LIMIT=500`, the real number from the AI Studio rate limit page for `gemini-3.5-flash-lite`.
 
 **Skill list (`tutor/skills.py`)**
 
 - [ ] Write the fixed list of about 40 skills. Each one has an id, a name, a level and a category: `to_be | Verb to be | A2 | verbs`.
 - [ ] Cover these categories: verb tenses, modals, articles, prepositions, pronouns, comparatives, conditionals, passive voice, word order, phrasal verbs, collocations, spelling.
 - [ ] Add one short example of a typical mistake for each skill. The AI uses it to choose the right tag.
+- [ ] Each skill has an `active` flag. Skill ids are never renamed or deleted; a retired skill gets `active: False`.
+- [ ] Add 4 extra skills: `writing_general`, `listening`, `speaking` (category `general`) and `spelling` (a normal skill).
 
 **Database (`tutor/db.py`, SQLite)**
 
-- [ ] Table `skills`: id, name, level, category.
-- [ ] Table `exercises`: id, section, skill\_id, level, topic, prompt text, expected answer, created date.
-- [ ] Table `attempts`: id, exercise\_id, section, skill\_id, your answer, verdict (correct, partial, wrong), error type (grammar, vocabulary, spelling, word order), explanation, hint used, seconds taken, date.
+- [ ] Table `skills`: id, name, level, category, active.
+- [ ] Table `exercises`: id, section, skill\_id, level, topic, prompt text, expected answer (can be empty, for free Writing texts), model, prompt version, created date.
+- [ ] Table `attempts`: id, submission\_id, exercise\_id (required), section, skill\_id, source, your answer, verdict (correct, partial, wrong), error type (grammar, vocabulary, spelling, word order, naturalness), explanation, mistake text, correction, hint used, seconds taken, graded by, model, prompt version, date.
+- [ ] `source`: "targeted" = the exercise was made to test this skill; "detected" = a mistake the exercise did not target (for example in free writing). Only targeted attempts count for mastery (Step 4).
+- [ ] `submission_id`: all rows from one answer share it (a `uuid`). We count answers by submission, not by row.
+- [ ] `mistake_text` and `correction` (both optional): the exact wrong part I wrote, and the right form (or the natural version). For fill the gap: my answer and the expected answer. For Writing: the wrong fragment and its fix. No third "corrected answer" column.
+- [ ] `graded_by`: "code" or "ai". When the code grades, model and prompt version stay empty.
+- [ ] `prompt_version`: automatic, the prompt name + a short hash of the prompt TEMPLATE (before level, topic and skill list are inserted). A test: the same template with different values gives the same version.
+- [ ] An attempt is a Pydantic model `Attempt` with `Literal` values for section, verdict, error type, source and graded by. `save_attempt(attempt)` receives the model.
 - [ ] Table `reviews`: exercise\_id, box number, due date.
 - [ ] Table `lessons`: skill\_id, lesson text, date.
-- [ ] Write the helper functions `save_attempt()`, `get_attempts()` and `init_db()`.
-- [ ] Write pytest tests that create a temporary database, save one attempt and read it back.
+- [ ] Table `lesson_events`: skill\_id, opened\_at (UTC). One row each time I open a lesson in Learn (Step 4). The Step 8 chart "before and after a lesson" needs it.
+- [ ] One `connect()` function opens every connection with `PRAGMA foreign_keys = ON` (SQLite turns it off by default).
+- [ ] All dates in UTC, ISO format (`2026-11-16T21:04:05+00:00`). Steps 4 and 7 convert to `Europe/Lisbon` to count days.
+- [ ] `init_db()` is safe to run many times: `CREATE TABLE IF NOT EXISTS`, insert-or-update skills, never deletes. It stops with an error if a skill id in the database is missing from `skills.py`. It sets `PRAGMA user_version = 1`; write migrations only when a later step needs a new column.
+- [ ] Write the helper functions `save_exercise()`, `save_attempt()`, `get_attempts()` (returns a pandas DataFrame) and `init_db()`.
+- [ ] Write pytest tests with a temporary database: save one attempt and read it back; an unknown exercise\_id is refused; an unknown skill\_id is refused; `init_db()` twice gives no duplicates; a skill missing from `skills.py` raises an error.
 
 **Done when:** a small script asks the AI for one fill-the-gap sentence, gets a valid object with a skill id from your list, and saves it in the database.
 
-## Step 2 – Practice (fill the gap)
+## Step 2 - Practice (fill the gap)
 
 This is the first version you can really study with, and it copies the page I built for you in this chat.
 
 **Create sentences**
 
 - [ ] Write the Pydantic schema `GapExercise`: sentence with `___`, expected answer, other accepted answers, skill id, hint, level.
-- [ ] Write the prompt in `prompts.py`. It receives the level, the topic and the full skill list, and returns 5 exercises.
+- [ ] Write the prompt in `prompts.py`. It receives the level, the topic and the skill list from `get_learning_skills()` (never the `general` skills), and returns 5 exercises. Fill the gap never uses `capitalization` (the code check ignores capital letters, so it could never be wrong), and the skill selector does not show it for fill the gap.
 - [ ] Check each exercise in code: exactly one `___`, a skill id that exists, an answer that is not empty. Drop the bad ones.
+- [ ] Validate each exercise of a batch alone: parse the answer as a list of raw items, then validate each item with `GapExercise`. Drop and log the invalid ones, keep the rest. (With `list[GapExercise]`, one bad item would fail the whole batch.)
 - [ ] Save the good ones in `exercises` and avoid sentences you already saw.
 - [ ] Add selectors for level and topic (daily life, data science and work, travel, meetings).
+- [ ] Add a skill selector: one skill from the list, grouped by category, or "any skill". Skills of the category `general` are not in it. When I choose a skill, the level selector starts at the skill's level: I can choose a higher level, not a lower one.
 
 **Check answers**
 
 - [ ] First check in code: if your answer equals the expected answer or an accepted one (ignore capital letters and spaces), it is correct. No AI call needed.
+- [ ] Capitalization in code: if my answer equals the expected answer except for capital letters, and the expected answer has a capital where I wrote a small letter (monday vs Monday), save the targeted attempt as correct and add one detected attempt for `capitalization` (same submission\_id), with a short reminder on screen. No AI call.
 - [ ] Otherwise ask the AI. Schema `GapGrade`: verdict, error type, explanation, corrected sentence, other good answers, memory tip.
 - [ ] Tell the AI to accept any answer a native speaker would use, and to explain why your answer does not work.
+- [ ] Grammar right but spelling wrong ("have finised"): save two attempts with the same submission\_id. One targeted, the exercise skill, verdict correct; one detected, skill `spelling`, verdict wrong. A wrong irregular form ("writed", "have went") is a grammar mistake, not spelling. Write this rule clearly in the grader prompt.
+- [ ] Every explanation of a wrong or partial answer has 3 parts, in this order: (a) quote what I wrote, (b) why it is wrong in this sentence, (c) the rule in one line with the correct form. No general grammar text that ignores my answer.
+- [ ] The 3 parts are 3 fields in `GapGrade`: `mistake_text`, `why_wrong`, `rule`. `mistake_text` is the same value saved in the `mistake_text` column; Writing (Step 3) uses the same field and the same check.
+- [ ] The 3 fields are required when the verdict is wrong or partial, and empty when it is correct. For a correct answer that differs from the expected one, one short line in the optional field `note` confirms it is also right.
+- [ ] Code check: `mistake_text` must appear in the full sentence with my answer inserted (not only in my answer). Ignore capital letters, quote marks, apostrophe styles (' and ’) and extra spaces.
+- [ ] If the check fails: retry once at most. If it fails again, use my answer as `mistake_text`, show the explanation, and log the case. Never block me.
+- [ ] `why_wrong` and `rule` follow my explanation language setting (English by default until Step 4 adds the selector). `mistake_text` is never translated or changed.
+- [ ] In the database, the 3 parts are joined into the `explanation` column.
+- [ ] Tone: kind and encouraging, explain the reason (often the Portuguese structure behind the mistake). The verdict stays strict.
 - [ ] Show the result in green, yellow or red, with the rule and the corrected sentence.
 - [ ] Add a hint button. Save if you used it.
 - [ ] Save every attempt with `save_attempt()`, including the seconds you took.
@@ -162,12 +188,14 @@ This is the first version you can really study with, and it copies the page I bu
 **Two more exercise types (same page, same grading code)**
 
 - [ ] Fix the error: the AI writes a sentence with one mistake, and you rewrite it correctly.
+- [ ] `capitalization` is available in Fix the error (for example "on monday i speak english"). For this skill only, the code check compares capital letters exactly.
 - [ ] Word order: the AI gives shuffled words, and you type the sentence.
 
 **Test the grader**
 
-- [ ] Create `eval/gold_gap.csv` with 50 rows: sentence, expected answer, a learner answer, and the verdict you decide by hand. Include tricky cases: synonyms, spelling mistakes, a correct answer that is different from the expected one.
+- [ ] Create `eval/gold_gap.csv` with 50 rows: sentence, expected answer, a learner answer, and the verdict you decide by hand. Include tricky cases: synonyms, spelling mistakes, a correct answer that is different from the expected one. Include 2–3 typo cases ("finised": grammar correct + spelling) and 2–3 wrong irregular forms ("writed": grammar wrong). Add 5 rows that check the explanation: it must contain my exact wrong words.
 - [ ] Write `eval/run_eval.py`. It grades all rows with the AI and prints the agreement and a confusion matrix.
+- [ ] `run_eval.py` appends each run to `eval/results.csv`: date (UTC), eval set (gap, writing, translate), model, prompt version, number of rows, agreement. The file goes in git. The Step 8 chart "grader agreement per prompt version" reads it.
 - [ ] Improve the prompt, or change the model, until agreement is 90% or more.
 
 **Done when:** you can do 20 sentences without an error, every attempt is in the database with a skill tag, and the grader agrees with you on 45 of the 50 gold rows.
@@ -181,7 +209,9 @@ Here you write freely and the AI finds every mistake, so one text can create sev
 - [ ] Write the prompt. The AI must keep your meaning, correct only real errors, and choose skill ids from your list.
 - [ ] Show your text with the wrong parts in red and the fixes in green.
 - [ ] Show the corrected text and the more natural version below.
-- [ ] Save one attempt per mistake, verdict wrong, with its skill id. For a text with no mistakes, save one correct attempt with the skill `writing_general`.
+- [ ] Naturalness: when a sentence is correct but a native speaker would say it differently, save it with error type `naturalness`, verdict correct, source detected, and the closest skill (if nothing fits, `word_choice`). It never lowers the mastery score. Save my sentence + the natural version, so Review (Step 7) can bring these "expressions to learn" back.
+- [ ] Each checked text creates one row in `exercises` (section writing, prompt text = the writing prompt or your text, expected answer empty), so every attempt has an exercise\_id.
+- [ ] Save one attempt per mistake, verdict wrong, with its skill id and source "detected". For a text with no mistakes, save one correct attempt with the skill `writing_general`. All rows of one text share the same submission\_id.
 - [ ] Add a "Give me a writing prompt" button that uses your level and topic.
 - [ ] Add a "Try again" button: you rewrite the text without looking at the fix, and the AI checks it again.
 - [ ] Add 15 rows to the gold file for writing. Include 5 correct texts, to check that the AI does not invent mistakes.
@@ -196,7 +226,10 @@ This step adds the part you asked for: the app tells you what to study and teach
 
 - [ ] Write `skill_stats()`: for each skill, the number of attempts, accuracy over the last 10 attempts, and the date of the last attempt. Count a partial answer as half.
 - [ ] Give each skill a status: new (under 5 attempts), weak (under 60%), learning (60 to 85%), strong (over 85%).
-- [ ] Write `recommend()`: return the 3 weakest skills. Start with the ones at or below your level, because basics like verb to be matter most.
+- [ ] Only targeted attempts count for the mastery score. Detected attempts are a warning signal.
+- [ ] Write `recommend()`: return the 3 weakest skills. Start with the ones at or below your level, because basics like verb to be matter most. `writing_general`, `listening` and `speaking` are never recommended as grammar skills. `spelling` is a normal skill.
+- [ ] Detected mistakes become visible: if a skill gets 3 detected mistakes in 14 days, Home suggests 5 targeted sentences on it. Naturalness rows do not count for this rule.
+- [ ] Test: naturalness rows never change the mastery score and never create a warning.
 - [ ] Write tests with fake attempts to check the statuses.
 
 **"You must study X" message**
@@ -209,6 +242,7 @@ This step adds the part you asked for: the app tells you what to study and teach
 - [ ] Show all skills grouped by category, each with its status color. Weak ones first.
 - [ ] Write the lesson prompt. It receives the skill and your last 5 wrong answers on it, and returns: the rule in simple words, 3 examples, the typical mistake of Portuguese speakers, and a memory tip.
 - [ ] Save the lesson in `lessons`, so the app does not create it again every time.
+- [ ] Save one row in `lesson_events` each time I open a lesson.
 - [ ] Under the lesson, give 5 fill-the-gap sentences only on that skill. Use the code from Step 2.
 - [ ] At the end, show the score and the new status of the skill.
 - [ ] Add a selector for the explanation language (Portuguese or English).
@@ -285,15 +319,43 @@ Your mistakes come back on a schedule until you know them, and this is what make
 By now you have weeks of real answers, so the charts show something true.
 
 - [ ] Top row with four numbers: answers this week, accuracy this week, current streak, skills that are strong.
-- [ ] Bar chart: accuracy per skill, sorted from weakest to strongest, colored by status.
-- [ ] Line chart: accuracy per week, one line per section (Practice, Writing, Listening, Translate).
-- [ ] Calendar heatmap: answers per day, to see your habit.
-- [ ] Table of your 10 most repeated mistakes: skill, example of your answer, the correct form.
-- [ ] Chart of error types: grammar, vocabulary, spelling, word order.
 - [ ] Filters: period, section, level.
 - [ ] Level estimate: show the highest level where at least 70% of the skills are strong. Call it an estimate, because it is not an official test.
 - [ ] Weekly report button: send this week's numbers to the AI and ask for 5 lines. What improved, what is still weak, and one plan for next week.
 - [ ] Export button: download all attempts as CSV, to analyze in a notebook.
+
+**Rules for every chart**
+
+- [ ] All calculations live in `tutor/stats.py` as functions that return DataFrames, with pytest tests on fake data. Pages only draw.
+- [ ] One definition of accuracy, the same as mastery: targeted attempts only, partial = 0.5, counted by `submission_id`. Naturalness rows never count.
+- [ ] Every chart shows the number of answers behind it. Fewer than 5 answers = grey, with "not enough data yet".
+- [ ] Days, weeks and hours use Europe/Lisbon time.
+- [ ] Status colors always come with a text label.
+- [ ] One line under each chart says what to do next.
+
+**First version: 4 charts**
+
+- [ ] Accuracy by CEFR level (A2, B1, B2, C1): the average of the skill accuracies in each level, so skills I practise more do not weigh more.
+- [ ] Skill map: all skills grouped by category, colored by status (new, weak, learning, strong), with a mark on skills that have detected warnings. A click opens the skill in Learn.
+- [ ] Accuracy per week: one line for new exercises, one for reviews, with bars for the number of answers. Weeks with fewer than 10 answers are grey.
+- [ ] Top 10 mistake patterns in the last 30 days: skill, number of mistakes (targeted wrong + detected), and my 2 latest examples as `mistake_text` → `correction`.
+- [ ] "Expressions to learn" is a separate list, not part of the top 10.
+
+**Ideas for later charts (do not build in the first version)**
+
+- [ ] Mistakes by category and by error type (grammar, vocabulary, spelling, word order, naturalness).
+- [ ] Bar chart: accuracy per skill, sorted from weakest to strongest, colored by status.
+- [ ] Calendar heatmap: answers per day, to see your habit.
+- [ ] One skill over time.
+- [ ] Skills by status per week (how many weak, learning, strong).
+- [ ] Before and after a lesson: accuracy on a skill in the 10 answers before and the 10 after I studied it in Learn.
+- [ ] Accuracy by hour of the day.
+- [ ] Seconds per answer by skill.
+- [ ] Hint use by skill.
+- [ ] Reviews by box.
+- [ ] Accuracy in Review by days since last seen.
+- [ ] Grader agreement per prompt version.
+- [ ] AI requests per day against the limit.
 
 **Done when:** you open Progress and can say in 10 seconds which skill to study next and whether this week was better than the last.
 
@@ -335,6 +397,7 @@ The app already works, and this step makes it solid and good to show on your Git
 
 - [ ] Add a level test for new users: 20 sentences from A2 to C1, and the app sets the starting level.
 - [ ] Add a Settings page: level, topics, explanation language, daily goal, AI provider, voice.
+- [ ] Idea: switches in Settings to turn off some detected checks for a while (capitalization, spelling), for example when typing fast on a phone. Default: all on. When a switch is off, those mistakes are not saved as detected attempts.
 - [ ] Add a button to back up the database file and one to restore it.
 - [ ] Show a clear message when the AI is not available, and let Review work with saved exercises without the AI.
 - [ ] Cache AI answers that do not change (lessons, exercises already created) to save requests.
