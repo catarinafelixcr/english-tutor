@@ -2,7 +2,21 @@
 
 import streamlit as st
 
+from tutor import db
+
 st.set_page_config("English Tutor", ":material/school:")
+
+
+# Streamlit runs this file again after every click. @st.cache_resource runs the function only ONCE per app start,
+# so the database is created (or upgraded) once, not on every click. init_db() is safe to run many times anyway.
+@st.cache_resource
+def prepare_database():
+    db.init_db()
+
+    return True
+
+
+prepare_database()
 
 
 # one st.Page per section. "title" and "icon" must be written by name: st.Page does not accept them by position
