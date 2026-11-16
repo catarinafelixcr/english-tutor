@@ -1,13 +1,15 @@
 """The only file that talks to the AI. It sends a prompt and returns a validated Pydantic object.
 
-Main function: ask(prompt_text, prompt_version, schema, task) -> (validated object, model returned)
+Main function: ask(prompt_text, prompt_version, schema, task, budget) -> (validated object, model returned)
 task is "create" (writing exercises, lessons) or "grade" (checking answers): each task has its own reasoning
 effort in .env, so the code never names a provider-specific value.
+budget (optional) is a RequestBudget shared by several ask() calls for ONE piece of work.
 
 Rules (PLAN.md, Step 1, and the experiments in JOURNAL.md):
 - The openai client never retries by itself (max_retries=0): every request sent is ours, logged and counted.
 - One line in logs/ai_log.jsonl per request sent, also for failed ones (failed requests use quota too).
-- A bad answer is retried once. A 429 or 503 is retried at most 2 times, inside a budget of about 20 seconds.
+- A bad answer is retried once. A 429 or 503 is retried at most 2 times. All of it inside a budget of
+  4 requests and about 20 seconds.
 - Timeouts, wrong settings and refused requests are never retried.
 - The API key is never written to the log.
 """
@@ -36,6 +38,11 @@ MAX_BUSY_RETRIES = 2
 BUSY_RETRY_WAITS_SECONDS = [2, 4]
 LONGEST_WAIT_SECONDS = 10
 RETRY_BUDGET_SECONDS = 20
+
+# 1 request + 1 retry for a bad answer + 2 retries when busy. Also the ceiling for grading one answer.
+MAX_REQUESTS_PER_BUDGET = 4
+
+BUSY_MESSAGE = "The AI is busy. Try again in a minute."
 
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_DAILY_LIMIT_MARGIN = 20
@@ -396,6 +403,51 @@ def stop_if_daily_limit_reached(settings):
                                   + str(usable_limit) + "). The quota resets at midnight Pacific time.")
 
 
+# ---------- a budget shared by several requests ----------
+
+class RequestBudget:
+    """The limits for ONE piece of work, shared by every ask() call made for it.
+
+    Grading one answer can need two ask() calls (the grade, then one retry for bad quotes). With ONE budget, both
+    together stay under 4 requests and about 20 seconds (my rule, 2026-11-16). Without a budget, ask() makes its own.
+    busy_retries False: a 429 or 503 stops at once, with no wait (a refill of the exercise stock must not make me
+    wait while I still have exercises).
+    """
+
+    def __init__(self, max_requests, max_seconds, busy_retries):
+        self.requests_left = max_requests
+        self.max_seconds = max_seconds
+        self.busy_retries = busy_retries
+        self.start_seconds = None
+
+    def start_clock_if_needed(self):
+        # The clock starts at the first ask() that uses this budget, not when the budget is created.
+        if self.start_seconds is None:
+            self.start_seconds = monotonic_seconds()
+
+    def seconds_used(self):
+        if self.start_seconds is None:
+            return 0
+
+        return monotonic_seconds() - self.start_seconds
+
+    def is_used_up(self):
+        if self.requests_left <= 0:
+            return True
+
+        return self.seconds_used() >= self.max_seconds
+
+
+def make_normal_budget():
+    # 4 requests, about 20 seconds, retries when busy: the same limits ask() always had.
+    return RequestBudget(MAX_REQUESTS_PER_BUDGET, RETRY_BUDGET_SECONDS, True)
+
+
+def make_fail_fast_budget():
+    # The same, but a busy AI stops at once (no 2 s + 4 s waits).
+    return RequestBudget(MAX_REQUESTS_PER_BUDGET, RETRY_BUDGET_SECONDS, False)
+
+
 # ---------- deciding what to do after an error ----------
 
 def choose_busy_wait_seconds(error, busy_retry_number):
@@ -432,19 +484,23 @@ def raise_final_error(error_kind, settings, error):
 
 # ---------- the main function ----------
 
-def ask(prompt_text, prompt_version, schema, task, settings=None):
+def ask(prompt_text, prompt_version, schema, task, budget=None, settings=None):
     # Returns (validated object, model returned). Raises one of the AIError types above.
     # task: one of TASKS. It chooses the reasoning effort from .env.
+    # budget: a RequestBudget shared with other ask() calls, or None for a new normal budget.
     if task not in TASKS:
         raise ValueError("unknown AI task: " + str(task) + ". Use one of: " + ", ".join(TASKS))
 
     if settings is None:
         settings = read_ai_settings()
 
+    if budget is None:
+        budget = make_normal_budget()
+
     # From here on, settings["reasoning_effort"] is the effort of THIS task (sent in the request and logged).
     settings = settings_for_task(settings, task)
 
-    first_request_time = monotonic_seconds()
+    budget.start_clock_if_needed()
     attempt_number = 0
     invalid_answer_count = 0
     busy_retry_count = 0
@@ -452,6 +508,10 @@ def ask(prompt_text, prompt_version, schema, task, settings=None):
     while True:
         stop_if_daily_limit_reached(settings)
 
+        if budget.is_used_up():
+            raise AIUnavailableError("The AI did not give a usable answer in time. Try again in a minute.")
+
+        budget.requests_left = budget.requests_left - 1
         attempt_number = attempt_number + 1
         request_info = {"prompt_text": prompt_text, "prompt_version": prompt_version, "task": task,
                         "schema_name": schema.__name__, "attempt_number": attempt_number}
@@ -477,10 +537,13 @@ def ask(prompt_text, prompt_version, schema, task, settings=None):
             if error_kind != "busy":
                 raise_final_error(error_kind, settings, error)
 
+            if not budget.busy_retries:
+                raise AIUnavailableError(BUSY_MESSAGE) from error
+
             busy_retry_count = busy_retry_count + 1
 
-            if busy_retry_count > MAX_BUSY_RETRIES:
-                raise AIUnavailableError("The AI is busy. Try again in a minute.") from error
+            if busy_retry_count > MAX_BUSY_RETRIES or budget.requests_left <= 0:
+                raise AIUnavailableError(BUSY_MESSAGE) from error
 
             wait_time = choose_busy_wait_seconds(error, busy_retry_count)
 
@@ -489,8 +552,8 @@ def ask(prompt_text, prompt_version, schema, task, settings=None):
                 raise AIUnavailableError("The AI is busy. Wait " + str(rounded_wait) + " seconds and try again.",
                                     rounded_wait) from error
 
-            if monotonic_seconds() - first_request_time + wait_time > RETRY_BUDGET_SECONDS:
-                raise AIUnavailableError("The AI is busy. Try again in a minute.") from error
+            if budget.seconds_used() + wait_time > budget.max_seconds:
+                raise AIUnavailableError(BUSY_MESSAGE) from error
 
             wait_seconds(wait_time)
             continue

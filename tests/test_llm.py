@@ -120,8 +120,8 @@ def read_log_lines(log_path):
     return log_lines
 
 
-def ask_tiny_question():
-    return llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", make_fake_settings())
+def ask_tiny_question(budget=None):
+    return llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", budget, make_fake_settings())
 
 
 # ---------- ask(): success and bad answers ----------
@@ -258,6 +258,80 @@ def test_the_20_second_budget_stops_the_retries(log_path, monkeypatch):
     assert fake_world.waits == []
 
 
+# ---------- ask(): the request budget ----------
+
+def test_one_ask_never_sends_more_than_4_requests(log_path, monkeypatch):
+    # 1 bad answer + 3 busy errors: the 4th request is the last one, even if one busy retry is still left.
+    planned_results = [make_validation_error()] + [make_gemini_error(503, "high demand")] * 3
+    fake_world = install_fake_world(monkeypatch, planned_results, 1)
+
+    with pytest.raises(llm.AIUnavailableError):
+        ask_tiny_question()
+
+    assert fake_world.call_count == 4
+
+
+def test_two_asks_with_one_budget_share_the_4_requests(log_path, monkeypatch):
+    # The first ask uses 3 requests (busy, busy, ok). The second has 1 left: a busy error stops it, no wait.
+    planned_results = [make_gemini_error(503, "high demand"), make_gemini_error(503, "high demand"),
+                       make_fake_response("hi", "fake-test-model"), make_gemini_error(503, "high demand")]
+    fake_world = install_fake_world(monkeypatch, planned_results, 1)
+    shared_budget = llm.make_normal_budget()
+
+    ask_tiny_question(shared_budget)
+
+    with pytest.raises(llm.AIUnavailableError):
+        ask_tiny_question(shared_budget)
+
+    assert fake_world.call_count == 4
+    assert fake_world.waits == [2, 4]
+
+
+def test_two_asks_with_one_budget_share_the_20_seconds(log_path, monkeypatch):
+    # The first request takes 21 s on the fake clock: the second ask does not send anything.
+    fake_world = install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 21)
+    shared_budget = llm.make_normal_budget()
+
+    ask_tiny_question(shared_budget)
+
+    with pytest.raises(llm.AIUnavailableError, match="in time"):
+        ask_tiny_question(shared_budget)
+
+    assert fake_world.call_count == 1
+
+
+def test_the_budget_clock_starts_at_the_first_request(log_path, monkeypatch):
+    # A budget created long before its first use still has its full 20 seconds.
+    fake_world = install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
+    shared_budget = llm.make_normal_budget()
+    fake_world.clock_seconds = fake_world.clock_seconds + 500
+
+    parsed_answer, model_returned = ask_tiny_question(shared_budget)
+
+    assert parsed_answer.text == "hi"
+
+
+def test_a_fail_fast_budget_stops_at_the_first_busy_error(log_path, monkeypatch):
+    fake_world = install_fake_world(monkeypatch, [make_gemini_error(503, "high demand")], 1)
+
+    with pytest.raises(llm.AIUnavailableError):
+        ask_tiny_question(llm.make_fail_fast_budget())
+
+    assert fake_world.call_count == 1
+    assert fake_world.waits == []
+
+
+def test_a_fail_fast_budget_still_retries_a_bad_answer(log_path, monkeypatch):
+    # Fail fast is only about a busy AI: a bad answer gets its normal retry.
+    planned_results = [make_validation_error(), make_fake_response("hi", "fake-test-model")]
+    fake_world = install_fake_world(monkeypatch, planned_results, 1)
+
+    parsed_answer, model_returned = ask_tiny_question(llm.make_fail_fast_budget())
+
+    assert parsed_answer.text == "hi"
+    assert fake_world.call_count == 2
+
+
 # ---------- ask(): errors that are never retried ----------
 
 def test_a_timeout_is_not_retried(log_path, monkeypatch):
@@ -350,7 +424,7 @@ def test_ask_stops_before_sending_when_the_limit_minus_the_margin_is_reached(log
     fake_world = install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
 
     with pytest.raises(llm.AIDailyLimitError):
-        llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", settings)
+        llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", None, settings)
 
     assert fake_world.call_count == 0
 
@@ -510,7 +584,7 @@ def test_an_empty_task_setting_means_the_model_default(monkeypatch):
 def test_ask_sends_and_logs_the_reasoning_effort_of_its_task(log_path, monkeypatch, task, expected_effort):
     fake_world = install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
 
-    llm.ask("Say hi", "tiny@000000", TinyAnswer, task, make_fake_settings())
+    llm.ask("Say hi", "tiny@000000", TinyAnswer, task, None, make_fake_settings())
     log_line = read_log_lines(log_path)[0]
 
     assert fake_world.reasoning_efforts_sent == [expected_effort]
@@ -522,7 +596,7 @@ def test_ask_does_not_change_the_settings_it_receives(log_path, monkeypatch):
     install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
     settings = make_fake_settings()
 
-    llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", settings)
+    llm.ask("Say hi", "tiny@000000", TinyAnswer, "grade", None, settings)
 
     assert settings["reasoning_effort"] == ""
 
@@ -531,7 +605,7 @@ def test_ask_refuses_an_unknown_task_before_any_request(log_path, monkeypatch):
     fake_world = install_fake_world(monkeypatch, [make_fake_response("hi", "fake-test-model")], 1)
 
     with pytest.raises(ValueError, match="unknown AI task"):
-        llm.ask("Say hi", "tiny@000000", TinyAnswer, "translate", make_fake_settings())
+        llm.ask("Say hi", "tiny@000000", TinyAnswer, "translate", None, make_fake_settings())
 
     assert fake_world.call_count == 0
     assert not log_path.exists()
