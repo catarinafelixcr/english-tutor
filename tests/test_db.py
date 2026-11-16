@@ -428,6 +428,63 @@ def test_save_attempt_needs_an_attempt_model(database_path):
         db.save_attempt({"skill_id": "to_be"}, database_path)
 
 
+# ---------- save_attempts: all rows of one answer, or none ----------
+
+def make_detected_spelling_attempt(submission_id, exercise_id):
+    # "She has finised the report": the detected row of the answer.
+    return Attempt(submission_id=submission_id, exercise_id=exercise_id, section="practice", skill_id="spelling",
+                   source="detected", your_answer="finised", verdict="wrong", error_type="spelling",
+                   mistake_text="finised", correction="finished", graded_by="ai", model="fake-test-model",
+                   prompt_version="fake_prompt@000000")
+
+
+def test_save_attempts_saves_every_row_of_one_answer(database_path):
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+    targeted_attempt = make_wrong_attempt(exercise_id, "to_be")
+    detected_attempt = make_detected_spelling_attempt(targeted_attempt.submission_id, exercise_id)
+
+    new_attempt_ids = db.save_attempts([targeted_attempt, detected_attempt], database_path)
+    saved_attempts = db.get_attempts(database_path=database_path)
+
+    assert len(new_attempt_ids) == 2
+    assert list(saved_attempts["source"]) == ["targeted", "detected"]
+    assert saved_attempts["submission_id"].nunique() == 1
+    assert saved_attempts["created_at"].nunique() == 1
+
+
+def test_save_attempts_saves_nothing_when_one_row_is_refused(database_path):
+    # The second row points to an exercise that does not exist: the first row must not stay alone.
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+    targeted_attempt = make_wrong_attempt(exercise_id, "to_be")
+    detected_attempt = make_detected_spelling_attempt(targeted_attempt.submission_id, 999)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.save_attempts([targeted_attempt, detected_attempt], database_path)
+
+    assert count_rows(database_path, "attempts") == 0
+
+
+def test_save_attempts_refuses_rows_from_two_answers(database_path):
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+    first_attempt = make_wrong_attempt(exercise_id, "to_be")
+    second_attempt = make_wrong_attempt(exercise_id, "to_be")
+
+    with pytest.raises(ValueError, match="one submission_id"):
+        db.save_attempts([first_attempt, second_attempt], database_path)
+
+    assert count_rows(database_path, "attempts") == 0
+
+
+def test_save_attempts_refuses_an_empty_list(database_path):
+    with pytest.raises(ValueError, match="at least one attempt"):
+        db.save_attempts([], database_path)
+
+
+def test_save_attempts_needs_attempt_models(database_path):
+    with pytest.raises(TypeError):
+        db.save_attempts([{"skill_id": "to_be"}], database_path)
+
+
 # ---------- foreign keys ----------
 
 def test_an_attempt_with_an_unknown_exercise_id_is_refused(database_path):

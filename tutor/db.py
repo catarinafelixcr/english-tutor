@@ -273,12 +273,9 @@ def save_exercise(exercise, database_path=DEFAULT_DATABASE_PATH):
     return new_exercise_id
 
 
-def save_attempt(attempt, database_path=DEFAULT_DATABASE_PATH):
-    # Returns the id of the new row. An unknown exercise_id or skill_id is refused by the foreign keys.
-    if not isinstance(attempt, Attempt):
-        raise TypeError("save_attempt() needs an Attempt model, not " + type(attempt).__name__)
-
-    created_at = attempt.created_at or utc_now()
+def make_attempt_values(attempt, default_created_at):
+    # The values of one attempt, in the order of INSERT_ATTEMPT_SQL.
+    created_at = attempt.created_at or default_created_at
     attempt_values = (
         attempt.submission_id, attempt.exercise_id, attempt.section, attempt.skill_id, attempt.source,
         attempt.your_answer, attempt.verdict, attempt.error_type, attempt.explanation, attempt.mistake_text,
@@ -286,11 +283,46 @@ def save_attempt(attempt, database_path=DEFAULT_DATABASE_PATH):
         attempt.prompt_version, to_iso_text(created_at),
     )
 
-    with connect(database_path) as connection:
-        cursor = connection.execute(INSERT_ATTEMPT_SQL, attempt_values)
-        new_attempt_id = cursor.lastrowid
+    return attempt_values
 
-    return new_attempt_id
+
+def save_attempts(attempt_list, database_path=DEFAULT_DATABASE_PATH):
+    # Saves ALL rows of ONE answer (for example a targeted row + a detected row) in one transaction:
+    # all rows are saved, or none (connect() undoes everything on an error). Returns the new ids, in order.
+    # An unknown exercise_id or skill_id is refused by the foreign keys.
+    if len(attempt_list) == 0:
+        raise ValueError("save_attempts() needs at least one attempt")
+
+    for attempt in attempt_list:
+        if not isinstance(attempt, Attempt):
+            raise TypeError("save_attempts() needs Attempt models, not " + type(attempt).__name__)
+
+    first_submission_id = attempt_list[0].submission_id
+
+    for attempt in attempt_list:
+        if attempt.submission_id != first_submission_id:
+            raise ValueError("all attempts saved together must come from one answer (one submission_id)")
+
+    # The rows of one answer get the same date, unless an attempt already has its own.
+    default_created_at = utc_now()
+    new_attempt_ids = []
+
+    with connect(database_path) as connection:
+        for attempt in attempt_list:
+            cursor = connection.execute(INSERT_ATTEMPT_SQL, make_attempt_values(attempt, default_created_at))
+            new_attempt_ids.append(cursor.lastrowid)
+
+    return new_attempt_ids
+
+
+def save_attempt(attempt, database_path=DEFAULT_DATABASE_PATH):
+    # Returns the id of the new row. One answer with ONE row (CLAUDE.md, rule 3: every answer is saved).
+    if not isinstance(attempt, Attempt):
+        raise TypeError("save_attempt() needs an Attempt model, not " + type(attempt).__name__)
+
+    new_attempt_ids = save_attempts([attempt], database_path)
+
+    return new_attempt_ids[0]
 
 
 # ---------- reading ----------
