@@ -258,6 +258,17 @@ def test_the_grade_prompt_version_does_not_depend_on_the_values():
     assert first_version.startswith("gap_grade@")
 
 
+def test_the_quote_retry_note_names_the_bad_quotes_and_my_sentence():
+    prompt_text, prompt_version = build_grade_prompt_for("present_perfect", [], "English")
+
+    retry_prompt_text = prompts.add_quote_retry_note(prompt_text, ["have finish"],
+                                                     "She has finish the report already.")
+
+    assert retry_prompt_text.startswith(prompt_text)
+    assert "\"have finish\"" in retry_prompt_text
+    assert "exactly from this sentence: She has finish the report already." in retry_prompt_text
+
+
 def test_the_grade_prompt_has_no_place_left_empty():
     prompt_text, prompt_version = build_grade_prompt_for("present_perfect", [], "English")
 

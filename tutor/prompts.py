@@ -232,6 +232,12 @@ Tone: kind and encouraging, but the verdict stays strict. Never call a wrong ans
 # One line per skill with a tag_when, except the tested skill. Part of the version hash too.
 DETECTABLE_TAG_WHEN_LINE_TEMPLATE = "- {skill_id}: {tag_when}"
 
+# Added at the end of the prompt for the ONE retry after bad quotes. Part of the version hash too.
+GAP_GRADE_QUOTE_RETRY_NOTE_TEMPLATE = """
+Your previous answer quoted words that are not in the learner's full sentence: {bad_quotes}.
+Copy mistake_text and detected_mistake.mistake_text exactly from this sentence: {sentence_with_answer}
+"""
+
 
 def make_detectable_tag_when_lines(tested_skill_id):
     tag_when_lines = []
@@ -270,7 +276,21 @@ def build_gap_grade_prompt(exercise, your_answer, sentence_with_answer, explanat
         explanation_language=explanation_language,
     )
 
-    all_templates = GAP_GRADE_TEMPLATE + TAG_WHEN_LINE_TEMPLATE + DETECTABLE_TAG_WHEN_LINE_TEMPLATE
+    all_templates = (GAP_GRADE_TEMPLATE + TAG_WHEN_LINE_TEMPLATE + DETECTABLE_TAG_WHEN_LINE_TEMPLATE
+                     + GAP_GRADE_QUOTE_RETRY_NOTE_TEMPLATE)
     prompt_version = make_prompt_version(GAP_GRADE_PROMPT_NAME, all_templates)
 
     return prompt_text, prompt_version
+
+
+def add_quote_retry_note(prompt_text, bad_quotes, sentence_with_answer):
+    # bad_quotes: the wrong quotes themselves, for example ["have finish"]. The version does not change.
+    quoted_texts = []
+
+    for bad_quote in bad_quotes:
+        quoted_texts.append("\"" + bad_quote + "\"")
+
+    retry_note = GAP_GRADE_QUOTE_RETRY_NOTE_TEMPLATE.format(bad_quotes=", ".join(quoted_texts),
+                                                            sentence_with_answer=sentence_with_answer)
+
+    return prompt_text + retry_note

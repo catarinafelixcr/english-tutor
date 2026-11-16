@@ -3,7 +3,18 @@
 This file sits between the screens (pages/) and the AI (llm.py), so the pages stay thin (CLAUDE.md, rule 7).
 """
 
+import json
 import re
+from datetime import datetime, timezone
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from tutor import db, llm, prompts
+from tutor.schemas import Attempt, make_gap_grade_schema
+
+# One JSON line per grading problem: bad quotes, the fallback, a corrected sentence that does not match.
+GRADING_PROBLEMS_LOG_PATH = db.PROJECT_FOLDER / "logs" / "grading_problems.jsonl"
 
 # Curly apostrophes that phone keyboards type. They all become the straight one: ’ → '
 CURLY_APOSTROPHES = ["’", "‘", "ʼ"]
@@ -215,3 +226,263 @@ def corrected_sentence_matches(grade, sentence_with_answer):
     expected_sentence = build_expected_corrected_sentence(grade, sentence_with_answer)
 
     return clean_for_comparing(grade.corrected_sentence) == expected_sentence
+
+
+# ---------- the result the page shows ----------
+
+class GapResult(BaseModel):
+    """What the Practice page shows after one answer. The page only draws it (CLAUDE.md, rule 7).
+
+    state: correct (green), almost (yellow: tested skill right + a grammar slip of another skill),
+    partial (yellow "Partly right"), wrong (red).
+    """
+
+    submission_id: str
+    state: Literal["correct", "almost", "partial", "wrong"]
+    graded_by: Literal["code", "ai"]
+    your_answer: str
+    corrected_sentence: str
+    mistake_text: str = ""
+    correction: str = ""
+    why_wrong: str = ""
+    rule: str = ""
+    note: str = ""
+    memory_tip: str = ""
+    other_good_answers: list[str] = Field(default_factory=list)
+    # A slip of another skill: "writed" → "written" (irregular_verbs), "finised" → "finished" (spelling).
+    detected_skill_id: str = ""
+    detected_mistake_text: str = ""
+    detected_correction: str = ""
+    # A short line for a spelling or capitalization slip, shown under a green result.
+    reminder: str = ""
+
+
+def choose_state(verdict, detected_mistake):
+    if verdict == "wrong":
+        return "wrong"
+
+    if verdict == "partial":
+        return "partial"
+
+    # Correct. A grammar slip of another skill ("writed") is "Almost"; a spelling slip stays green + reminder.
+    if detected_mistake is not None and detected_mistake.error_type != "spelling":
+        return "almost"
+
+    return "correct"
+
+
+def make_reminder(skill_id, mistake_text, correction):
+    if skill_id == "capitalization":
+        return "Remember the capital letter: " + mistake_text + " → " + correction + "."
+
+    if skill_id == "spelling":
+        return "Check the spelling: " + mistake_text + " → " + correction + "."
+
+    return ""
+
+
+def join_explanation(grade):
+    # The text saved in the "explanation" column: the 3 parts, or the "also right" note.
+    if grade.verdict == "correct":
+        return grade.note
+
+    return "You wrote: " + grade.mistake_text + "\nWhy: " + grade.why_wrong + "\nRule: " + grade.rule
+
+
+# ---------- logging grading problems ----------
+
+def write_grading_problem(problem_name, exercise_id, exercise, your_answer, grade, details):
+    # Never blocks the learner: the problem is only written down, to look at later.
+    problem_line = {
+        "time_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "problem": problem_name,
+        "exercise_id": exercise_id,
+        "skill_id": exercise.skill_id,
+        "sentence": exercise.prompt_text,
+        "your_answer": your_answer,
+        "details": details,
+        "grade": grade.model_dump(),
+    }
+
+    GRADING_PROBLEMS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(GRADING_PROBLEMS_LOG_PATH, "a", encoding="utf-8") as log_file:
+        log_file.write(json.dumps(problem_line, ensure_ascii=False, default=str) + "\n")
+
+
+# ---------- grading in code: the rows ----------
+
+def make_code_attempt(submission_id, exercise_id, exercise, your_answer, hint_used, seconds_taken):
+    # Attempt is a Pydantic model: it needs keyword names (the exception in CLAUDE.md).
+    return Attempt(submission_id=submission_id, exercise_id=exercise_id, section=exercise.section,
+                   skill_id=exercise.skill_id, source="targeted", your_answer=your_answer, verdict="correct",
+                   hint_used=hint_used, seconds_taken=seconds_taken, graded_by="code")
+
+
+def grade_exact_match(submission_id, exercise_id, exercise, your_answer, matched_answer, hint_used, seconds_taken,
+                      database_path):
+    attempt = make_code_attempt(submission_id, exercise_id, exercise, your_answer, hint_used, seconds_taken)
+    db.save_attempts([attempt], database_path)
+
+    # The matched correct answer, not mine: "Written" (a capital I added myself) must not stay mid-sentence.
+    corrected_sentence = build_sentence_with_answer(exercise.prompt_text, matched_answer)
+
+    return GapResult(submission_id=submission_id, state="correct", graded_by="code", your_answer=your_answer,
+                     corrected_sentence=corrected_sentence)
+
+
+def grade_capitalization_slip(submission_id, exercise_id, exercise, your_answer, matched_answer, hint_used,
+                              seconds_taken, database_path):
+    # PLAN.md: the targeted attempt is correct + one detected capitalization attempt, with no AI call.
+    my_answer = clean_answer(your_answer)
+    reminder = make_reminder("capitalization", my_answer, matched_answer)
+
+    targeted_attempt = make_code_attempt(submission_id, exercise_id, exercise, your_answer, hint_used, seconds_taken)
+    detected_attempt = Attempt(submission_id=submission_id, exercise_id=exercise_id, section=exercise.section,
+                               skill_id="capitalization", source="detected", your_answer=your_answer,
+                               verdict="wrong", error_type="spelling", explanation=reminder, mistake_text=my_answer,
+                               correction=matched_answer, hint_used=hint_used, seconds_taken=seconds_taken,
+                               graded_by="code")
+    db.save_attempts([targeted_attempt, detected_attempt], database_path)
+
+    corrected_sentence = build_sentence_with_answer(exercise.prompt_text, matched_answer)
+
+    return GapResult(submission_id=submission_id, state="correct", graded_by="code", your_answer=your_answer,
+                     corrected_sentence=corrected_sentence, detected_skill_id="capitalization",
+                     detected_mistake_text=my_answer, detected_correction=matched_answer, reminder=reminder)
+
+
+# ---------- grading with the AI ----------
+
+def get_bad_quote_texts(grade, bad_quote_names):
+    bad_quote_texts = []
+
+    if "mistake_text" in bad_quote_names:
+        bad_quote_texts.append(grade.mistake_text)
+
+    if "detected_mistake.mistake_text" in bad_quote_names:
+        bad_quote_texts.append(grade.detected_mistake.mistake_text)
+
+    return bad_quote_texts
+
+
+def ask_ai_for_grade(exercise_id, exercise, your_answer, explanation_language):
+    # Returns (grade, model returned, prompt version). The grade's quotes are words of my sentence:
+    # checked, retried once with a note, and replaced by my answer if the retry fails too.
+    # Every request for this answer shares ONE budget: about 4 requests and 20 seconds in total (my rule).
+    my_answer = clean_answer(your_answer)
+    sentence_with_answer = build_sentence_with_answer(exercise.prompt_text, your_answer)
+    prompt_text, prompt_version = prompts.build_gap_grade_prompt(exercise, my_answer, sentence_with_answer,
+                                                                 explanation_language)
+    grade_schema = make_gap_grade_schema(exercise.skill_id)
+    shared_budget = llm.make_normal_budget()
+
+    # No try here: if the first grade fails, the page shows the error and nothing is saved.
+    grade, model_returned = llm.ask(prompt_text, prompt_version, grade_schema, "grade", shared_budget)
+    bad_quote_names = find_bad_quotes(grade, sentence_with_answer)
+
+    if len(bad_quote_names) > 0:
+        bad_quote_texts = get_bad_quote_texts(grade, bad_quote_names)
+        write_grading_problem("bad_quotes", exercise_id, exercise, your_answer, grade, bad_quote_texts)
+
+        retry_prompt_text = prompts.add_quote_retry_note(prompt_text, bad_quote_texts, sentence_with_answer)
+
+        try:
+            grade, model_returned = llm.ask(retry_prompt_text, prompt_version, grade_schema, "grade", shared_budget)
+        except llm.AIError as error:
+            # Busy, out of budget, invalid... The first grade is still good enough to show.
+            write_grading_problem("quote_retry_failed", exercise_id, exercise, your_answer, grade, str(error))
+
+        bad_quote_names = find_bad_quotes(grade, sentence_with_answer)
+
+    if len(bad_quote_names) > 0:
+        bad_quote_texts = get_bad_quote_texts(grade, bad_quote_names)
+        write_grading_problem("quote_fallback", exercise_id, exercise, your_answer, grade, bad_quote_texts)
+        grade = use_my_answer_as_bad_quotes(grade, bad_quote_names, your_answer)
+
+    # Addition C: only logged, never retried.
+    if not corrected_sentence_matches(grade, sentence_with_answer):
+        expected_sentence = build_expected_corrected_sentence(grade, sentence_with_answer)
+        write_grading_problem("corrected_sentence_mismatch", exercise_id, exercise, your_answer, grade,
+                              expected_sentence)
+
+    return grade, model_returned, prompt_version
+
+
+def make_ai_attempts(submission_id, exercise_id, exercise, your_answer, hint_used, seconds_taken, grade,
+                     model_returned, prompt_version):
+    # The targeted row, and a detected row when the AI found a slip of another skill.
+    targeted_attempt = Attempt(submission_id=submission_id, exercise_id=exercise_id, section=exercise.section,
+                               skill_id=exercise.skill_id, source="targeted", your_answer=your_answer,
+                               verdict=grade.verdict, error_type=grade.error_type,
+                               explanation=join_explanation(grade), mistake_text=grade.mistake_text or None,
+                               correction=grade.correction or None, hint_used=hint_used,
+                               seconds_taken=seconds_taken, graded_by="ai", model=model_returned,
+                               prompt_version=prompt_version)
+    attempt_list = [targeted_attempt]
+
+    detected_mistake = grade.detected_mistake
+
+    if detected_mistake is None:
+        return attempt_list
+
+    detected_explanation = make_reminder(detected_mistake.skill_id, detected_mistake.mistake_text,
+                                         detected_mistake.correction)
+    detected_attempt = Attempt(submission_id=submission_id, exercise_id=exercise_id, section=exercise.section,
+                               skill_id=detected_mistake.skill_id, source="detected", your_answer=your_answer,
+                               verdict="wrong", error_type=detected_mistake.error_type,
+                               explanation=detected_explanation, mistake_text=detected_mistake.mistake_text,
+                               correction=detected_mistake.correction, hint_used=hint_used,
+                               seconds_taken=seconds_taken, graded_by="ai", model=model_returned,
+                               prompt_version=prompt_version)
+    attempt_list.append(detected_attempt)
+
+    return attempt_list
+
+
+def make_ai_result(submission_id, your_answer, grade):
+    detected_mistake = grade.detected_mistake
+    result = GapResult(submission_id=submission_id, state=choose_state(grade.verdict, detected_mistake),
+                       graded_by="ai", your_answer=your_answer, corrected_sentence=grade.corrected_sentence,
+                       mistake_text=grade.mistake_text, correction=grade.correction, why_wrong=grade.why_wrong,
+                       rule=grade.rule, note=grade.note, memory_tip=grade.memory_tip,
+                       other_good_answers=grade.other_good_answers)
+
+    if detected_mistake is None:
+        return result
+
+    result.detected_skill_id = detected_mistake.skill_id
+    result.detected_mistake_text = detected_mistake.mistake_text
+    result.detected_correction = detected_mistake.correction
+    result.reminder = make_reminder(detected_mistake.skill_id, detected_mistake.mistake_text,
+                                    detected_mistake.correction)
+
+    return result
+
+
+# ---------- the function the page calls ----------
+
+def grade_gap_answer(exercise_id, exercise, your_answer, hint_used, seconds_taken,
+                     explanation_language=prompts.DEFAULT_EXPLANATION_LANGUAGE,
+                     database_path=db.DEFAULT_DATABASE_PATH):
+    # Grades one fill-the-gap answer, saves every row (CLAUDE.md, rule 3) and returns a GapResult.
+    # The code first (no AI); the AI only when the code cannot decide (CLAUDE.md, rule 5).
+    # An AI error goes up to the page: nothing is saved, so the exercise stays in the stock to try again.
+    result_kind, matched_answer = check_answer_in_code(your_answer, exercise)
+    submission_id = db.new_submission_id()
+
+    if result_kind == EXACT_MATCH:
+        return grade_exact_match(submission_id, exercise_id, exercise, your_answer, matched_answer, hint_used,
+                                 seconds_taken, database_path)
+
+    if result_kind == CAPITALIZATION_SLIP:
+        return grade_capitalization_slip(submission_id, exercise_id, exercise, your_answer, matched_answer,
+                                         hint_used, seconds_taken, database_path)
+
+    grade, model_returned, prompt_version = ask_ai_for_grade(exercise_id, exercise, your_answer,
+                                                             explanation_language)
+    attempt_list = make_ai_attempts(submission_id, exercise_id, exercise, your_answer, hint_used, seconds_taken,
+                                    grade, model_returned, prompt_version)
+    db.save_attempts(attempt_list, database_path)
+
+    return make_ai_result(submission_id, your_answer, grade)
