@@ -28,7 +28,7 @@ def database_path(tmp_path):
 
 
 def make_exercise(skill_id):
-    return Exercise(section="practice", skill_id=skill_id, level="A2", topic="daily life",
+    return Exercise(section="practice", exercise_type="gap", skill_id=skill_id, level="A2", topic="daily life",
                     prompt_text="I ___ 25 years old.", expected_answer="am")
 
 
@@ -126,6 +126,118 @@ def test_init_db_refuses_a_database_newer_than_the_code(database_path):
         db.init_db(database_path)
 
 
+# ---------- migration from version 1 (Step 1) to version 2 (Step 2) ----------
+
+# A FROZEN copy of the Step 1 tables (commit cfa8e2c), so this test keeps building a real version-1 database
+# even when CREATE_TABLES_SQL changes again later. Only the tables the migration touches or needs.
+VERSION_1_TABLES_SQL = """
+CREATE TABLE skills (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, level TEXT NOT NULL, category TEXT NOT NULL, active INTEGER NOT NULL
+);
+CREATE TABLE exercises (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, section TEXT NOT NULL, skill_id TEXT NOT NULL REFERENCES skills (id),
+    level TEXT NOT NULL, topic TEXT, sub_topic TEXT, prompt_text TEXT NOT NULL, expected_answer TEXT,
+    accepted_answers TEXT NOT NULL DEFAULT '[]', hint TEXT, model TEXT, prompt_version TEXT, created_at TEXT NOT NULL
+);
+INSERT INTO skills VALUES ('to_be', 'Verb to be', 'A2', 'verbs', 1);
+INSERT INTO exercises (section, skill_id, level, topic, prompt_text, expected_answer, created_at)
+VALUES ('practice', 'to_be', 'A2', 'travel', 'I ___ tired after the flight.', 'am', '2026-11-16T21:04:05+00:00');
+PRAGMA user_version = 1;
+"""
+
+
+@pytest.fixture
+def version_1_database_path(tmp_path):
+    old_database_path = tmp_path / "old_tutor.db"
+
+    with sqlite3.connect(old_database_path) as connection:
+        connection.executescript(VERSION_1_TABLES_SQL)
+
+    # "with sqlite3.connect()" saves but does not close: close it, so Windows lets the test copy the file.
+    connection.close()
+
+    return old_database_path
+
+
+def read_version(database_path):
+    connection = sqlite3.connect(database_path)
+    database_version = connection.execute("PRAGMA user_version").fetchone()[0]
+    connection.close()
+
+    return database_version
+
+
+def list_backups(database_path):
+    backup_folder = database_path.parent / "backups"
+
+    if not backup_folder.exists():
+        return []
+
+    return sorted(backup_folder.glob("*.db"))
+
+
+def test_init_db_upgrades_a_version_1_database_and_keeps_its_rows(version_1_database_path):
+    db.init_db(version_1_database_path)
+
+    with db.connect(version_1_database_path) as connection:
+        exercise_row = connection.execute("SELECT exercise_type, prompt_text FROM exercises").fetchone()
+
+    assert read_version(version_1_database_path) == 2
+    assert exercise_row == ("gap", "I ___ tired after the flight.")
+    assert count_rows(version_1_database_path, "exercises") == 1
+    assert count_rows(version_1_database_path, "skills") == len(skills.SKILLS)
+
+
+def test_init_db_makes_a_backup_of_the_old_version_before_migrating(version_1_database_path):
+    db.init_db(version_1_database_path)
+
+    backups = list_backups(version_1_database_path)
+
+    assert len(backups) == 1
+    assert backups[0].name.startswith("old_tutor_before_v2_")
+    # The backup is the database as it was BEFORE: still version 1, and its exercise is still there.
+    assert read_version(backups[0]) == 1
+    assert count_rows(backups[0], "exercises") == 1
+
+
+def test_a_new_database_gets_no_backup(database_path):
+    assert list_backups(database_path) == []
+
+
+def test_init_db_twice_on_an_old_database_makes_only_one_backup(version_1_database_path):
+    db.init_db(version_1_database_path)
+    db.init_db(version_1_database_path)
+
+    assert len(list_backups(version_1_database_path)) == 1
+    assert read_version(version_1_database_path) == 2
+
+
+def test_a_failing_migration_changes_nothing(version_1_database_path, monkeypatch):
+    # The second statement fails: the first one (ALTER TABLE) must be undone too, and the version stays 1.
+    broken_migrations = {2: ["ALTER TABLE exercises ADD COLUMN exercise_type TEXT", "UPDATE no_such_table SET x = 1"]}
+    monkeypatch.setattr(db, "MIGRATIONS", broken_migrations)
+
+    with pytest.raises(sqlite3.OperationalError):
+        db.init_db(version_1_database_path)
+
+    with db.connect(version_1_database_path) as connection:
+        column_rows = connection.execute("PRAGMA table_info(exercises)").fetchall()
+
+    column_names = []
+
+    for column_row in column_rows:
+        column_names.append(column_row[1])
+
+    assert "exercise_type" not in column_names
+    assert read_version(version_1_database_path) == 1
+    assert len(list_backups(version_1_database_path)) == 1
+
+
+def test_every_version_above_1_has_a_migration():
+    for version_number in range(2, db.SCHEMA_VERSION + 1):
+        assert version_number in db.MIGRATIONS, "no migration for version " + str(version_number)
+
+
 # ---------- connect ----------
 
 def test_connect_turns_on_foreign_keys(database_path):
@@ -198,7 +310,8 @@ def test_dates_are_saved_in_utc_iso_format(database_path):
 
 
 def test_an_exercise_keeps_sub_topic_accepted_answers_and_hint(database_path):
-    exercise = Exercise(section="practice", skill_id="present_continuous", level="A2", topic="meetings",
+    exercise = Exercise(section="practice", exercise_type="gap", skill_id="present_continuous", level="A2",
+                        topic="meetings",
                         sub_topic="a daily stand-up", prompt_text="I ___ (work) on the report now.",
                         expected_answer="am working", accepted_answers=["'m working"], hint="right now",
                         model="fake-test-model", prompt_version="fake_prompt@000000")
@@ -241,6 +354,73 @@ def test_get_exercise_sentences_gives_one_skill_newest_first(database_path):
 
 def test_get_exercise_sentences_is_empty_for_a_new_skill(database_path):
     assert db.get_exercise_sentences("to_be", database_path) == []
+
+
+def test_a_practice_exercise_needs_an_exercise_type():
+    with pytest.raises(ValidationError, match="exercise_type"):
+        Exercise(section="practice", skill_id="to_be", level="A2", prompt_text="I ___ tired.", expected_answer="am")
+
+
+def test_a_writing_exercise_has_no_exercise_type():
+    writing_exercise = Exercise(section="writing", skill_id="writing_general", level="B1",
+                                prompt_text="Write an email to your manager.")
+
+    assert writing_exercise.exercise_type is None
+
+
+# ---------- get_unanswered_exercises ----------
+
+def save_practice_exercise(database_path, skill_id, level, topic, exercise_type, sentence):
+    exercise = Exercise(section="practice", exercise_type=exercise_type, skill_id=skill_id, level=level,
+                        topic=topic, prompt_text=sentence, expected_answer="am", accepted_answers=["'m"],
+                        hint="how you feel")
+
+    return db.save_exercise(exercise, database_path)
+
+
+def test_get_unanswered_exercises_leaves_out_answered_ones(database_path):
+    answered_id = save_practice_exercise(database_path, "to_be", "A2", "travel", "gap", "I ___ tired.")
+    unanswered_id = save_practice_exercise(database_path, "to_be", "A2", "travel", "gap", "We ___ late.")
+    db.save_attempt(make_wrong_attempt(answered_id, "to_be"), database_path)
+
+    unanswered_exercises = db.get_unanswered_exercises("gap", "A2", "to_be", "travel", database_path)
+
+    assert len(unanswered_exercises) == 1
+
+    exercise_id, exercise = unanswered_exercises[0]
+
+    assert exercise_id == unanswered_id
+    assert exercise.prompt_text == "We ___ late."
+    assert exercise.accepted_answers == ["'m"]
+    assert exercise.exercise_type == "gap"
+    assert exercise.created_at.tzinfo is not None
+
+
+def test_get_unanswered_exercises_filters_type_level_skill_and_topic(database_path):
+    wanted_id = save_practice_exercise(database_path, "to_be", "A2", "travel", "gap", "I ___ tired.")
+    save_practice_exercise(database_path, "to_be", "A2", "travel", "fix_error", "I have tired.")
+    save_practice_exercise(database_path, "to_be", "B1", "travel", "gap", "They ___ at the gate.")
+    save_practice_exercise(database_path, "present_simple", "A2", "travel", "gap", "She ___ (work) here.")
+    save_practice_exercise(database_path, "to_be", "A2", "meetings", "gap", "We ___ ready.")
+
+    unanswered_exercises = db.get_unanswered_exercises("gap", "A2", "to_be", "travel", database_path)
+
+    assert len(unanswered_exercises) == 1
+    assert unanswered_exercises[0][0] == wanted_id
+
+
+def test_get_unanswered_exercises_with_any_skill_and_any_topic_oldest_first(database_path):
+    first_id = save_practice_exercise(database_path, "to_be", "A2", "travel", "gap", "I ___ tired.")
+    second_id = save_practice_exercise(database_path, "present_simple", "A2", "meetings", "gap", "She ___ (work).")
+
+    unanswered_exercises = db.get_unanswered_exercises("gap", "A2", None, None, database_path)
+
+    exercise_ids = []
+
+    for exercise_id, exercise in unanswered_exercises:
+        exercise_ids.append(exercise_id)
+
+    assert exercise_ids == [first_id, second_id]
 
 
 def test_save_attempt_needs_an_attempt_model(database_path):

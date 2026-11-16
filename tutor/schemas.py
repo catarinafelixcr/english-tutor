@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from tutor import skills
 
@@ -58,6 +58,7 @@ class Exercise(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     section: Literal["practice", "learn", "writing", "listening", "translate", "review", "speaking"]
+    exercise_type: Literal["gap", "fix_error", "word_order"] | None = None
     skill_id: str
     level: Literal["A2", "B1", "B2", "C1"]
     topic: str | None = None
@@ -79,6 +80,14 @@ class Exercise(BaseModel):
     @classmethod
     def created_at_must_be_utc(cls, created_at):
         return convert_to_utc(created_at)
+
+    @model_validator(mode="after")
+    def practice_needs_an_exercise_type(self):
+        # Without it, get_unanswered_exercises() could never find the exercise again.
+        if self.section == "practice" and self.exercise_type is None:
+            raise ValueError("a practice exercise needs an exercise_type (gap, fix_error or word_order)")
+
+        return self
 
 
 class Attempt(BaseModel):
@@ -237,6 +246,104 @@ def make_gap_exercise_draft_schema(sentences_already_saved):
         used_sentences: ClassVar[tuple] = tuple(sentences_already_saved)
 
     return NewGapExerciseDraft
+
+
+# ---------- AI answers: a batch of exercises (one request, 5 exercises) ----------
+
+class GapExerciseItem(BaseModel):
+    """One exercise of a batch, as the AI sends it: the same fields as GapExerciseDraft, but NO checks yet.
+
+    Why: if the list used GapExerciseDraft, one bad item would make the whole batch invalid and we would lose
+    the 4 good ones. So the batch accepts any item of the right shape, and split_gap_exercise_items() checks
+    each item alone.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    sentence: str
+    expected_answer: str
+    accepted_answers: list[str] = Field(default_factory=list)
+    hint: str
+
+
+def describe_validation_error(error):
+    # A short reason for the log: "the hint gives the expected answer: ...; the expected answer is empty"
+    error_messages = []
+
+    for error_details in error.errors():
+        error_messages.append(error_details["msg"].removeprefix("Value error, "))
+
+    return "; ".join(error_messages)
+
+
+def split_gap_exercise_items(items, draft_schema):
+    # Checks each item ALONE with the strict draft schema.
+    # Returns (valid_items, rejected_items):
+    #   valid_items:    a list of (position in the batch, validated draft)
+    #   rejected_items: a list of {"position", "reason", "item"}, for the log
+    # The position is kept so the code knows which sub-topic each exercise was written for.
+    valid_items = []
+    rejected_items = []
+    sentences_in_this_batch = []
+
+    for position, item in enumerate(items):
+        try:
+            draft = draft_schema(**item.model_dump())
+        except ValidationError as error:
+            rejected_items.append({"position": position, "reason": describe_validation_error(error),
+                                   "item": item.model_dump()})
+            continue
+
+        normalized_sentence = normalize_answer(draft.sentence)
+
+        if normalized_sentence in sentences_in_this_batch:
+            rejected_items.append({"position": position, "reason": "the same sentence twice in one batch",
+                                   "item": item.model_dump()})
+            continue
+
+        sentences_in_this_batch.append(normalized_sentence)
+        valid_items.append((position, draft))
+
+    return valid_items, rejected_items
+
+
+class GapExerciseBatch(BaseModel):
+    """The AI's answer to the batch prompt: a list of fill-the-gap exercises on ONE skill."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # The strict schema each item must pass. make_gap_exercise_batch_schema() puts in one that also knows
+    # the sentences already saved. A ClassVar: the AI never sees it.
+    strict_draft_schema: ClassVar[type] = GapExerciseDraft
+
+    exercises: list[GapExerciseItem]
+
+    @model_validator(mode="after")
+    def at_least_one_exercise_must_be_valid(self):
+        # Some bad items are fine (they are dropped later). ZERO good items = an invalid answer,
+        # so llm.ask() retries once, like any bad answer.
+        valid_items, rejected_items = split_gap_exercise_items(self.exercises, self.strict_draft_schema)
+
+        if len(valid_items) == 0:
+            reasons = []
+
+            for rejected_item in rejected_items:
+                reasons.append(rejected_item["reason"])
+
+            raise ValueError("no valid exercise in the batch: " + " | ".join(reasons))
+
+        return self
+
+
+def make_gap_exercise_batch_schema(sentences_already_saved):
+    # A copy of GapExerciseBatch whose items must also be new sentences for this skill.
+    # Different local name on purpose (see make_gap_exercise_draft_schema): no NameError in the class body.
+    new_draft_schema = make_gap_exercise_draft_schema(sentences_already_saved)
+
+    class NewGapExerciseBatch(GapExerciseBatch):
+        strict_draft_schema: ClassVar[type] = new_draft_schema
+
+    return NewGapExerciseBatch
 
 
 class GapExercise(GapExerciseDraft):

@@ -175,12 +175,16 @@ This is the first version you can really study with, and it copies the page I bu
 
 **Create sentences**
 
-- [ ] Write the Pydantic schema `GapExercise`: sentence with `___`, expected answer, other accepted answers, skill id, hint, level.
+- [x] Write the Pydantic schema `GapExercise`: sentence with `___`, expected answer, other accepted answers, skill id, hint, level. (Done in Step 1, Part 3 and 5.)
 - [ ] The CODE chooses the skill, never the AI: my choice in the skill selector, or the tutor's choice (Step 4). The prompt gets ONE skill (with its typical mistake and `tag_when`); the AI only writes the sentences. For variety, the code also sends a random sub-topic and the last few sentences on that skill, to avoid. (Found in the Step 1 experiments: when the AI chose, it always wrote "My brother usually ___ (wake) up".)
-- [ ] Write the prompt in `prompts.py`. It receives the level, the topic, the sub-topic, ONE skill and the sentences to avoid, and returns 5 exercises. Fill the gap never uses `capitalization` (the code check ignores capital letters, so it could never be wrong), and the skill selector does not show it for fill the gap. The caller passes only skills at or below the requested level, and checks that each `exercise.level` is the level it asked for (drop the ones that are not).
+- [ ] Write the prompt in `prompts.py`. It receives the level, the topic, the sub-topic, ONE skill and the sentences to avoid, and returns 5 exercises. Fill the gap never uses `capitalization` (the code check ignores capital letters, so it could never be wrong), and the skill selector does not show it for fill the gap. The caller passes only skills at or below the requested level. (The old "check each `exercise.level`" is obsolete since Step 1 Part 5: the AI does not return the level, the code adds it.)
+- [ ] Each exercise of a batch gets its own random sub-topic (5 different situations of the topic). The hint is about the MEANING of the sentence, never the grammar rule or the tense (the Step 1 hints named the rule).
 - [ ] Check each exercise in code: exactly one `___`, a skill id that exists, an answer that is not empty. Drop the bad ones.
-- [ ] Validate each exercise of a batch alone: parse the answer as a list of raw items, then validate each item with `GapExercise`. Drop and log the invalid ones, keep the rest. (With `list[GapExercise]`, one bad item would fail the whole batch.)
+- [ ] Validate each exercise of a batch alone: the AI returns a list of raw items (same fields, no checks), then the code validates each item with the strict `GapExerciseDraft`. Drop and log the invalid ones (`logs/dropped_exercises.jsonl`), keep the rest. Two equal sentences in one batch: the second is dropped. 0 valid items = an invalid answer, so `llm.ask()` retries once. (With `list[GapExerciseDraft]`, one bad item would fail the whole batch.)
 - [ ] Save the good ones in `exercises` and avoid sentences you already saw.
+- [ ] New column `exercise_type` in `exercises`: `gap`, `fix_error` or `word_order` (empty for other sections). It is required for Practice exercises.
+- [ ] First migration (database version 1 → 2): adds `exercise_type` and sets the old Practice rows to `gap`. Before ANY migration runs, `init_db()` copies `data/tutor.db` to `data/backups/tutor_before_v2_<UTC time>.db`. No copy for a new database or one already up to date. A test upgrades a real version-1 database.
+- [ ] Use saved exercises first: exercises that were created but never answered are shown before the app asks the AI for new ones.
 - [ ] Add selectors for level and topic (daily life, data science and work, travel, meetings).
 - [ ] Add a skill selector: one skill from the list, grouped by category, or "any skill". Skills of the category `general` are not in it. When I choose a skill, the level selector starts at the skill's level: I can choose a higher level, not a lower one.
 
@@ -191,9 +195,17 @@ This is the first version you can really study with, and it copies the page I bu
 - [ ] Otherwise ask the AI. Schema `GapGrade`: verdict, error type, explanation, corrected sentence, other good answers, memory tip.
 - [ ] Tell the AI to accept any answer a native speaker would use, and to explain why your answer does not work.
 - [ ] Grammar right but spelling wrong ("have finised"): save two attempts with the same submission\_id. One targeted, the exercise skill, verdict correct; one detected, skill `spelling`, verdict wrong. A wrong irregular form ("writed", "have went") is a grammar mistake, not spelling. Write this rule clearly in the grader prompt.
+- [ ] Verdicts in fill the gap (my rule, 2026-11-16):
+  - correct = the answer fits. A spelling slip is correct + a detected `spelling` row.
+  - partial = I applied half of the tested rule and did not try the other half: "has finish" for present perfect (no past form at all).
+  - wrong = I did not apply the tested rule.
+  - If the slip belongs to ANOTHER skill of the list, the tested skill is correct and that skill gets a detected wrong row: "writed" in a past simple exercise = `past_simple` correct + `irregular_verbs` wrong; "have went" in a present perfect exercise = `present_perfect` correct (I used have + a past form) + `irregular_verbs` wrong. When the exercise tests `irregular_verbs` itself, "writed" is simply wrong.
+- [ ] `GapGrade` has one optional `detected_mistake`: skill id (from the list, checked in code), error type, mistake text, correction. Spelling is `skill_id = spelling`.
+- [ ] On screen: green = correct (a spelling or capitalization slip adds a small reminder); yellow "Almost" = tested skill correct + a detected grammar mistake; yellow "Partly right" = partial; red = wrong.
 - [ ] Every explanation of a wrong or partial answer has 3 parts, in this order: (a) quote what I wrote, (b) why it is wrong in this sentence, (c) the rule in one line with the correct form. No general grammar text that ignores my answer.
 - [ ] The 3 parts are 3 fields in `GapGrade`: `mistake_text`, `why_wrong`, `rule`. `mistake_text` is the same value saved in the `mistake_text` column; Writing (Step 3) uses the same field and the same check.
 - [ ] The 3 fields are required when the verdict is wrong or partial, and empty when it is correct. For a correct answer that differs from the expected one, one short line in the optional field `note` confirms it is also right.
+- [ ] Ambiguous sentences (2026-11-16): when my answer is natural in the sentence but different from the expected one (for example another tense that the sentence allows), the verdict is correct, with the "also right" note. The prompt rule ("one clear signal, only the tested form fits") cannot remove every ambiguous sentence, so the grader is the second protection. Write this rule in the grader prompt, and add gold rows for it.
 - [ ] Code check: `mistake_text` must appear in the full sentence with my answer inserted (not only in my answer). Ignore capital letters, quote marks, apostrophe styles (' and ’) and extra spaces.
 - [ ] If the check fails: retry once at most. If it fails again, use my answer as `mistake_text`, show the explanation, and log the case. Never block me.
 - [ ] `why_wrong` and `rule` follow my explanation language setting (English by default until Step 4 adds the selector). `mistake_text` is never translated or changed.
@@ -207,11 +219,15 @@ This is the first version you can really study with, and it copies the page I bu
 
 - [ ] Fix the error: the AI writes a sentence with one mistake, and you rewrite it correctly.
 - [ ] `capitalization` is available in Fix the error (for example "on monday i speak english"). For this skill only, the code check compares capital letters exactly.
-- [ ] Word order: the AI gives shuffled words, and you type the sentence.
+- [ ] Word order: the AI writes the correct sentence, the CODE shuffles its words (never in an accepted order), and you type the sentence.
+- [ ] Word order skills: the `word_order` category plus `too_enough`, `phrasal_verbs_separable` and `have_something_done`, in one helper `get_word_order_skill_ids()` with a test. When a sentence has two correct orders, both are saved (expected answer + accepted answers).
 
 **Test the grader**
 
 - [ ] Create `eval/gold_gap.csv` with 50 rows: sentence, expected answer, a learner answer, and the verdict you decide by hand. Include tricky cases: synonyms, spelling mistakes, a correct answer that is different from the expected one. Include 2–3 typo cases ("finised": grammar correct + spelling) and 2–3 wrong irregular forms ("writed": grammar wrong). Add 5 rows that check the explanation: it must contain my exact wrong words.
+- [ ] Gold file rules (2026-11-16): Claude writes the 50 rows with my verdict EMPTY. At least 10 rows use my real mistakes (JOURNAL.md and the `typical_mistake` examples). About 8 partial rows, with "has finish" and "have went" both in. Columns: sentence, expected answer, accepted answers, learner answer, `my_verdict`, `my_detected_skill`, `sure` (yes/no), `must_quote`, notes. I fill `my_verdict`, `my_detected_skill` and `sure`.
+- [ ] Claude writes its own verdicts in `eval/gold_gap_claude.csv` (same row ids, one short reason each), at the same time as the gold file. I do not open it until my verdicts are finished.
+- [ ] `run_eval.py` compares three graders (me, Claude, Gemini) in pairs, on all rows and on `sure = yes` rows only. It reports agreement with 3 verdicts, with partial counted as wrong, and on the detected skill. "Done when" uses Gemini against MY verdicts; rows with `sure = no` are discussed first.
 - [ ] Write `eval/run_eval.py`. It grades all rows with the AI and prints the agreement and a confusion matrix.
 - [ ] `run_eval.py` appends each run to `eval/results.csv`: date (UTC), eval set (gap, writing, translate), model, prompt version, number of rows, agreement. The file goes in git. The Step 8 chart "grader agreement per prompt version" reads it.
 - [ ] Improve the prompt, or change the model, until agreement is 90% or more.
@@ -321,7 +337,7 @@ You read a sentence in Portuguese and write it in English, and the AI judges the
 Your mistakes come back on a schedule until you know them, and this is what makes the learning stay.
 
 - [ ] Write `tutor/srs.py` with the box system: box 1 returns after 1 day, box 2 after 3, box 3 after 7, box 4 after 14, box 5 after 30.
-- [ ] When an answer is wrong or partial in any section, add the exercise to `reviews` in box 1, due tomorrow.
+- [ ] When an answer is wrong or partial in any section, add the exercise to `reviews` in box 1, due tomorrow. This includes a submission where only a DETECTED row is wrong ("writed": past simple correct, irregular verbs wrong), otherwise that mistake would never come back.
 - [ ] In Review, show the exercises due today, oldest first. Use the same screen and grading as the original section.
 - [ ] Correct answer: move up one box and set the new due date. Wrong answer: back to box 1.
 - [ ] After a correct answer in box 5, mark the exercise as learned and remove it from the reviews.

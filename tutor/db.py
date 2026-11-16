@@ -4,9 +4,11 @@ Rules:
 - Every connection goes through connect(), which turns on foreign keys (SQLite turns them off by default).
 - init_db() is safe to run many times: it never deletes anything (CLAUDE.md, rule 10).
 - All dates are stored in UTC, in ISO format: 2026-11-16T21:04:05+00:00
+- A database with an older version is migrated by init_db(), after a backup copy (data/backups/).
 """
 
 import json
+import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -21,8 +23,8 @@ from tutor.schemas import Attempt, Exercise
 PROJECT_FOLDER = Path(__file__).resolve().parent.parent
 DEFAULT_DATABASE_PATH = PROJECT_FOLDER / "data" / "tutor.db"
 
-# change this number only together with a migration (see PLAN.md, Step 1).
-SCHEMA_VERSION = 1
+# Change this number only together with a new entry in MIGRATIONS (below).
+SCHEMA_VERSION = 2
 
 
 CREATE_TABLES_SQL = """
@@ -37,6 +39,7 @@ CREATE TABLE IF NOT EXISTS skills (
 CREATE TABLE IF NOT EXISTS exercises (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
     section          TEXT NOT NULL,
+    exercise_type    TEXT,
     skill_id         TEXT NOT NULL REFERENCES skills (id),
     level            TEXT NOT NULL,
     topic            TEXT,
@@ -94,6 +97,15 @@ CREATE TABLE IF NOT EXISTS lesson_events (
 );
 """
 
+# Migrations: for each version number, the SQL statements that bring the database from the version before to it.
+# CREATE_TABLES_SQL above is always the LATEST shape: a new database gets it directly and needs no migration.
+MIGRATIONS = {
+    2: [
+        "ALTER TABLE exercises ADD COLUMN exercise_type TEXT",
+        "UPDATE exercises SET exercise_type = 'gap' WHERE section = 'practice'",
+    ],
+}
+
 UPSERT_SKILL_SQL = """
 INSERT INTO skills (id, name, level, category, active) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET
@@ -102,10 +114,10 @@ ON CONFLICT (id) DO UPDATE SET
 
 INSERT_EXERCISE_SQL = """
 INSERT INTO exercises (
-    section, skill_id, level, topic, sub_topic, prompt_text, expected_answer, accepted_answers, hint, model,
-    prompt_version, created_at
+    section, exercise_type, skill_id, level, topic, sub_topic, prompt_text, expected_answer, accepted_answers, hint,
+    model, prompt_version, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 INSERT_ATTEMPT_SQL = """
@@ -169,14 +181,57 @@ def find_skill_ids_missing_from_code(connection):
     return missing_skill_ids
 
 
-def init_db(database_path=DEFAULT_DATABASE_PATH):
-    # Safe to run many times: creates what is missing, updates the skills, never deletes.
+def read_schema_version(database_path):
+    # 0 = a new, empty database (SQLite starts every file at 0).
     with connect(database_path) as connection:
         database_version = connection.execute("PRAGMA user_version").fetchone()[0]
 
-        if database_version > SCHEMA_VERSION:
-            raise RuntimeError("The database is newer than this code (version " + str(database_version) + ").")
+    return database_version
 
+
+def back_up_database(database_path):
+    # A copy of the whole file before a migration: data/backups/tutor_before_v2_20261116T210405Z.db
+    database_path = Path(database_path)
+    backup_folder = database_path.parent / "backups"
+    backup_folder.mkdir(parents=True, exist_ok=True)
+
+    time_text = utc_now().strftime("%Y%m%dT%H%M%SZ")
+    backup_name = database_path.stem + "_before_v" + str(SCHEMA_VERSION) + "_" + time_text + ".db"
+    backup_path = backup_folder / backup_name
+
+    # copy2 also keeps the file dates. No connection is open now, so the copy is complete.
+    shutil.copy2(database_path, backup_path)
+
+    return backup_path
+
+
+def migrate_database(database_path, database_version):
+    # One version at a time (1 → 2, later 2 → 3...). Each step is ONE transaction: its statements and the new
+    # version number are saved together, or not at all (SQLite can undo an ALTER TABLE too).
+    for target_version in range(database_version + 1, SCHEMA_VERSION + 1):
+        with connect(database_path) as connection:
+            connection.execute("BEGIN")
+
+            for migration_statement in MIGRATIONS[target_version]:
+                connection.execute(migration_statement)
+
+            connection.execute("PRAGMA user_version = " + str(target_version))
+
+
+def init_db(database_path=DEFAULT_DATABASE_PATH):
+    # Safe to run many times: migrates an old database (after a backup), creates what is missing,
+    # updates the skills, never deletes.
+    database_version = read_schema_version(database_path)
+
+    if database_version > SCHEMA_VERSION:
+        raise RuntimeError("The database is newer than this code (version " + str(database_version) + ").")
+
+    # A new database (version 0) is created directly in the latest shape: no backup, no migration.
+    if 0 < database_version < SCHEMA_VERSION:
+        back_up_database(database_path)
+        migrate_database(database_path, database_version)
+
+    with connect(database_path) as connection:
         connection.executescript(CREATE_TABLES_SQL)
 
         missing_skill_ids = find_skill_ids_missing_from_code(connection)
@@ -206,9 +261,9 @@ def save_exercise(exercise, database_path=DEFAULT_DATABASE_PATH):
     accepted_answers_text = json.dumps(exercise.accepted_answers, ensure_ascii=False)
 
     exercise_values = (
-        exercise.section, exercise.skill_id, exercise.level, exercise.topic, exercise.sub_topic, exercise.prompt_text,
-        exercise.expected_answer, accepted_answers_text, exercise.hint, exercise.model, exercise.prompt_version,
-        to_iso_text(created_at),
+        exercise.section, exercise.exercise_type, exercise.skill_id, exercise.level, exercise.topic, exercise.sub_topic,
+        exercise.prompt_text, exercise.expected_answer, accepted_answers_text, exercise.hint, exercise.model,
+        exercise.prompt_version, to_iso_text(created_at),
     )
 
     with connect(database_path) as connection:
@@ -271,3 +326,50 @@ def get_exercise_sentences(skill_id, database_path=DEFAULT_DATABASE_PATH):
         sentences.append(sentence_row[0])
 
     return sentences
+
+
+def row_to_exercise(exercise_row):
+    # One sqlite3.Row of the exercises table → an Exercise model (the JSON text becomes a list again).
+    exercise = Exercise(section=exercise_row["section"], exercise_type=exercise_row["exercise_type"],
+                        skill_id=exercise_row["skill_id"], level=exercise_row["level"], topic=exercise_row["topic"],
+                        sub_topic=exercise_row["sub_topic"], prompt_text=exercise_row["prompt_text"],
+                        expected_answer=exercise_row["expected_answer"],
+                        accepted_answers=json.loads(exercise_row["accepted_answers"]), hint=exercise_row["hint"],
+                        model=exercise_row["model"], prompt_version=exercise_row["prompt_version"],
+                        created_at=datetime.fromisoformat(exercise_row["created_at"]))
+
+    return exercise
+
+
+def get_unanswered_exercises(exercise_type, level, skill_id=None, topic=None, database_path=DEFAULT_DATABASE_PATH):
+    # Practice exercises that were created but never answered, oldest first, as a list of (exercise id, Exercise).
+    # The page shows these before asking the AI for new ones (no request spent).
+    # skill_id or topic = None means "any".
+    query = """
+    SELECT * FROM exercises
+    WHERE section = 'practice' AND exercise_type = ? AND level = ?
+      AND NOT EXISTS (SELECT 1 FROM attempts WHERE attempts.exercise_id = exercises.id)
+    """
+    query_values = [exercise_type, level]
+
+    if skill_id is not None:
+        query = query + " AND skill_id = ?"
+        query_values.append(skill_id)
+
+    if topic is not None:
+        query = query + " AND topic = ?"
+        query_values.append(topic)
+
+    query = query + " ORDER BY created_at, id"
+
+    with connect(database_path) as connection:
+        # Row lets us read a column by its name: exercise_row["skill_id"].
+        connection.row_factory = sqlite3.Row
+        exercise_rows = connection.execute(query, query_values).fetchall()
+
+    unanswered_exercises = []
+
+    for exercise_row in exercise_rows:
+        unanswered_exercises.append((exercise_row["id"], row_to_exercise(exercise_row)))
+
+    return unanswered_exercises

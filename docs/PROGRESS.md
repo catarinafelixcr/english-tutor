@@ -1,6 +1,6 @@
 # Progress
 
-Current step: **Step 1 - Foundation** (done 2026-11-16). Next: Step 2 - Practice (not started)
+Current step: **Step 2 - Practice** (started 2026-11-16)
 
 Tick a task when it is finished. Write the date when a step is done.
 
@@ -33,7 +33,13 @@ Done on: 2026-11-16
 
 ## Step 2 – Practice
 
-Not started.
+- [x] Part 1: batches of 5 exercises per request, `exercise_type` column (first migration, with backup), stricter batch prompt (one clear signal, level vocabulary, meaning hints)
+- [ ] Part 2: check answers (code first, then the AI), `GapGrade`, save attempts
+- [ ] Part 3: the Practice page (fill the gap)
+- [ ] Part 4: gold file (50 rows), `run_eval.py`, hand review of 20 exercises
+- [ ] Part 5: Fix the error and Word order
+
+Done when: you can do 20 sentences without an app error, every attempt is in the database with a skill tag, and the grader agrees with you on 45 of the 50 gold rows.
 
 ## Step 3 – Writing
 

@@ -84,3 +84,73 @@ def build_gap_exercise_prompt(level, topic, sub_topic, skill, sentences_to_avoid
     prompt_version = make_prompt_version(GAP_EXERCISE_PROMPT_NAME, GAP_EXERCISE_TEMPLATE + TAG_WHEN_LINE_TEMPLATE)
 
     return prompt_text, prompt_version
+
+
+# ---------- fill the gap: create a batch of exercises (Step 2) ----------
+
+GAP_EXERCISE_BATCH_PROMPT_NAME = "gap_exercise_batch"
+
+# One request, several exercises on ONE skill (CLAUDE.md, rule 5: batch 5 exercises per call).
+# Each exercise has its own situation, chosen by the code, for variety.
+# The hint rule is new: in Step 1 the hints named the grammar rule, which made the exercise too easy.
+GAP_EXERCISE_BATCH_TEMPLATE = """You are an English teacher. The learner is a Portuguese speaker from Portugal.
+
+Write {exercise_count} fill-the-gap exercises in English. All of them test the same skill.
+
+Level (CEFR): {level}
+Topic: {topic}
+
+The gap must test this skill: {skill_name}
+Typical mistake of Portuguese speakers with this skill: {typical_mistake}
+{tag_when_line}
+The typical mistake is only an illustration of the skill. Do not reuse its sentence or its words.
+
+Write exactly one exercise for each situation below, in this order:
+{situations}
+
+Sentences already used for this skill. Do not repeat them. Make your sentences clearly different from them
+and from each other (other verbs, other words, other ideas):
+{sentences_to_avoid}
+
+Rules for every exercise:
+- The sentence has exactly one gap, written as ___ (three underscores). Do not use underscores anywhere else.
+- The sentence must contain a clear signal (a time word, another word in the sentence, or the situation) that
+  makes the form of the tested skill the ONLY natural answer. It must contain no signal that calls for another
+  form, for example a time word that needs a different tense. The typical mistake above shows the kind of
+  difference this skill is about.
+- When the skill is about a verb form, write the base verb in brackets after the gap.
+- Use vocabulary at the {level} level or easier. The difficulty must be the skill, not the words.
+- expected_answer: the word or words that fill the gap.
+- accepted_answers: only answers that use the SAME grammar as the expected answer (for example a short form
+  of the same verb). Use an empty list if there are none.
+- hint: a short clue about the MEANING or the situation of the sentence, not about grammar. Do not name the
+  rule, the tense or the grammar word. Never write the expected answer or an accepted answer in the hint.
+
+Before you answer, read each sentence again with the gap filled. If a different form would also be natural
+(another tense, another word), the sentence is ambiguous: rewrite it so only the tested form fits.
+"""
+
+
+def make_situations_text(sub_topics):
+    # "1. a delayed flight\n2. checking in at a hotel\n..."
+    situation_lines = []
+
+    for position, sub_topic in enumerate(sub_topics):
+        situation_lines.append(str(position + 1) + ". " + sub_topic)
+
+    return "\n".join(situation_lines)
+
+
+def build_gap_exercise_batch_prompt(level, topic, sub_topics, skill, sentences_to_avoid):
+    # One exercise per sub-topic. Returns the final prompt text and its version.
+    prompt_text = GAP_EXERCISE_BATCH_TEMPLATE.format(
+        exercise_count=len(sub_topics), level=level, topic=topic, skill_name=skill["name"],
+        typical_mistake=skill["typical_mistake"], tag_when_line=make_tag_when_line(skill),
+        situations=make_situations_text(sub_topics),
+        sentences_to_avoid=make_sentences_to_avoid_text(sentences_to_avoid),
+    )
+
+    prompt_version = make_prompt_version(GAP_EXERCISE_BATCH_PROMPT_NAME,
+                                         GAP_EXERCISE_BATCH_TEMPLATE + TAG_WHEN_LINE_TEMPLATE)
+
+    return prompt_text, prompt_version
