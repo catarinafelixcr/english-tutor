@@ -6,7 +6,7 @@ Creating a model needs field names (Attempt(verdict="wrong", ...)): Pydantic doe
 
 import re
 from datetime import datetime, timezone
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -61,8 +61,11 @@ class Exercise(BaseModel):
     skill_id: str
     level: Literal["A2", "B1", "B2", "C1"]
     topic: str | None = None
+    sub_topic: str | None = None
     prompt_text: str = Field(min_length=1)
     expected_answer: str | None = None
+    accepted_answers: list[str] = Field(default_factory=list)
+    hint: str | None = None
     model: str | None = None
     prompt_version: str | None = None
     created_at: datetime | None = None
@@ -140,18 +143,24 @@ class Attempt(BaseModel):
 
 # ---------- AI answers ----------
 
-class GapExercise(BaseModel):
-    """One fill-the-gap exercise, exactly as the AI must return it."""
+class GapExerciseDraft(BaseModel):
+    """One fill-the-gap exercise, exactly as the AI must return it.
 
-    # Unknown fields are refused: if the AI adds or misspells a field, the answer is invalid and llm.py retries.
+    The AI does NOT return skill_id or level: the code chose them before asking (PLAN.md, Step 2).
+    """
+
+    # Unknown fields are refused: if the AI adds skill_id or misspells a field, the answer is invalid
+    # and llm.py retries.
     model_config = ConfigDict(extra="forbid")
+
+    # Sentences already saved for this skill. A ClassVar is not a field: the AI never sees it, and Pydantic needs
+    # the ClassVar annotation to know that. Empty here; make_gap_exercise_draft_schema() fills it.
+    used_sentences: ClassVar[tuple] = ()
 
     sentence: str
     expected_answer: str
     accepted_answers: list[str] = Field(default_factory=list)
-    skill_id: str
     hint: str
-    level: Literal["A2", "B1", "B2", "C1"]
 
     @field_validator("sentence")
     @classmethod
@@ -169,15 +178,6 @@ class GapExercise(BaseModel):
             raise ValueError("the expected answer is empty")
 
         return expected_answer.strip()
-
-    @field_validator("skill_id")
-    @classmethod
-    def skill_id_must_be_a_fill_the_gap_skill(cls, skill_id):
-        # Only active learning skills, never general skills, never capitalization (PLAN.md, Step 2).
-        if skill_id not in skills.get_fill_the_gap_skill_ids():
-            raise ValueError("this skill id cannot be used in fill the gap: " + skill_id)
-
-        return skill_id
 
     @field_validator("hint")
     @classmethod
@@ -217,3 +217,39 @@ class GapExercise(BaseModel):
                 raise ValueError("the hint gives an accepted answer: " + self.hint)
 
         return self
+
+    @model_validator(mode="after")
+    def sentence_must_be_new(self):
+        # Same sentence after normalizing (capital letters, spaces) = already used = an invalid answer.
+        for used_sentence in self.used_sentences:
+            if normalize_answer(used_sentence) == normalize_answer(self.sentence):
+                raise ValueError("this sentence was already used for this skill: " + self.sentence)
+
+        return self
+
+
+def make_gap_exercise_draft_schema(sentences_already_saved):
+    # A copy of GapExerciseDraft that also refuses the sentences already saved for this skill.
+    # The JSON schema sent to the AI is the same: used_sentences is not a field.
+    # The argument has another name on purpose: inside a class body, Python cannot read a function argument
+    # with the same name as the class attribute being defined (NameError).
+    class NewGapExerciseDraft(GapExerciseDraft):
+        used_sentences: ClassVar[tuple] = tuple(sentences_already_saved)
+
+    return NewGapExerciseDraft
+
+
+class GapExercise(GapExerciseDraft):
+    """A draft from the AI + the skill and level chosen by the code. Every draft check still applies."""
+
+    skill_id: str
+    level: Literal["A2", "B1", "B2", "C1"]
+
+    @field_validator("skill_id")
+    @classmethod
+    def skill_id_must_be_a_fill_the_gap_skill(cls, skill_id):
+        # Only active learning skills, never general skills, never capitalization (PLAN.md, Step 2).
+        if skill_id not in skills.get_fill_the_gap_skill_ids():
+            raise ValueError("this skill id cannot be used in fill the gap: " + skill_id)
+
+        return skill_id

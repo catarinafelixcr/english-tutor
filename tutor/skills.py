@@ -244,6 +244,18 @@ def get_fill_the_gap_skill_ids():
     return fill_the_gap_skill_ids
 
 
+def get_fill_the_gap_skills_up_to_level(level):
+    # Fill-the-gap skills at this level or below: for B1, the A2 and B1 skills.
+    allowed_levels = VALID_LEVELS[:VALID_LEVELS.index(level) + 1]
+    selected_skills = []
+
+    for skill in get_fill_the_gap_skills():
+        if skill["level"] in allowed_levels:
+            selected_skills.append(skill)
+
+    return selected_skills
+
+
 def skills_as_prompt_text(skill_list):
     # One line per skill, for the AI: "to_be | Verb to be | A2 | typical mistake: ... | tag when: ..."
     prompt_lines = []

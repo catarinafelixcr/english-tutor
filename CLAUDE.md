@@ -57,6 +57,7 @@ tutor/prompts.py  all prompt texts
 tutor/schemas.py  Pydantic models: AI answers and database records (Attempt)
 tutor/db.py       SQLite tables and queries
 tutor/skills.py   the fixed skill list
+tutor/exercises.py  create exercises: code picks skill/topic, AI writes, db saves
 tutor/mastery.py  weak/strong logic and recommendations
 tutor/srs.py      spaced repetition
 tutor/audio.py    listen and speak helpers

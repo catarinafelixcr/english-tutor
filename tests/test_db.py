@@ -3,6 +3,7 @@
 Every test uses a temporary database, never data/tutor.db.
 """
 
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -194,6 +195,52 @@ def test_dates_are_saved_in_utc_iso_format(database_path):
 
     # 00:30 in Lisbon summer time is 23:30 of the day before in UTC.
     assert saved_date_text == "2026-06-30T23:30:00+00:00"
+
+
+def test_an_exercise_keeps_sub_topic_accepted_answers_and_hint(database_path):
+    exercise = Exercise(section="practice", skill_id="present_continuous", level="A2", topic="meetings",
+                        sub_topic="a daily stand-up", prompt_text="I ___ (work) on the report now.",
+                        expected_answer="am working", accepted_answers=["'m working"], hint="right now",
+                        model="fake-test-model", prompt_version="fake_prompt@000000")
+
+    exercise_id = db.save_exercise(exercise, database_path)
+
+    with db.connect(database_path) as connection:
+        saved_row = connection.execute("SELECT sub_topic, accepted_answers, hint FROM exercises WHERE id = ?",
+                                       (exercise_id,)).fetchone()
+
+    assert saved_row[0] == "a daily stand-up"
+    assert json.loads(saved_row[1]) == ["'m working"]
+    assert saved_row[2] == "right now"
+
+
+def test_an_exercise_without_accepted_answers_saves_an_empty_list(database_path):
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+
+    with db.connect(database_path) as connection:
+        accepted_answers_text = connection.execute("SELECT accepted_answers FROM exercises WHERE id = ?",
+                                                   (exercise_id,)).fetchone()[0]
+
+    assert accepted_answers_text == "[]"
+
+
+def test_get_exercise_sentences_gives_one_skill_newest_first(database_path):
+    first_exercise = make_exercise("to_be")
+    first_exercise.prompt_text = "I ___ tired."
+    second_exercise = make_exercise("to_be")
+    second_exercise.prompt_text = "They ___ at home."
+    other_skill_exercise = make_exercise("present_simple")
+    other_skill_exercise.prompt_text = "She ___ (work) in a bank."
+
+    db.save_exercise(first_exercise, database_path)
+    db.save_exercise(second_exercise, database_path)
+    db.save_exercise(other_skill_exercise, database_path)
+
+    assert db.get_exercise_sentences("to_be", database_path) == ["They ___ at home.", "I ___ tired."]
+
+
+def test_get_exercise_sentences_is_empty_for_a_new_skill(database_path):
+    assert db.get_exercise_sentences("to_be", database_path) == []
 
 
 def test_save_attempt_needs_an_attempt_model(database_path):

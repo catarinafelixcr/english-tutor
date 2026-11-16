@@ -242,6 +242,20 @@ def test_fill_the_gap_skills_never_contain_capitalization_or_general_skills():
     assert len(fill_the_gap_skill_ids) == len(skills.get_learning_skills()) - 1
 
 
+def test_fill_the_gap_skills_up_to_b1_are_the_a2_and_b1_skills():
+    selected_skills = skills.get_fill_the_gap_skills_up_to_level("B1")
+    selected_levels = set()
+
+    for skill in selected_skills:
+        selected_levels.add(skill["level"])
+
+    assert selected_levels == {"A2", "B1"}
+
+    for skill in skills.get_fill_the_gap_skills():
+        if skill["level"] in ["A2", "B1"]:
+            assert skill in selected_skills, skill["id"] + " is missing"
+
+
 def test_skills_as_prompt_text_has_one_line_per_skill_with_tag_when():
     skill_without_tag_when = skills.get_skill("to_be")
     skill_with_tag_when = skills.get_skill("spelling")

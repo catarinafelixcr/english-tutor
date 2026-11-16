@@ -143,7 +143,7 @@ This step has no screen to show, but every later step depends on it.
 **Database (`tutor/db.py`, SQLite)**
 
 - [ ] Table `skills`: id, name, level, category, active.
-- [ ] Table `exercises`: id, section, skill\_id, level, topic, prompt text, expected answer (can be empty, for free Writing texts), model, prompt version, created date.
+- [ ] Table `exercises`: id, section, skill\_id, level, topic, sub\_topic, prompt text, expected answer (can be empty, for free Writing texts), accepted answers (a JSON list, `[]` when none), hint, model, prompt version, created date. Accepted answers and hint are needed by the code check, the hint button (Step 2) and Review (Step 7).
 - [ ] Table `attempts`: id, submission\_id, exercise\_id (required), section, skill\_id, source, your answer, verdict (correct, partial, wrong), error type (grammar, vocabulary, spelling, word order, naturalness), explanation, mistake text, correction, hint used, seconds taken, graded by, model, prompt version, date.
 - [ ] `source`: "targeted" = the exercise was made to test this skill; "detected" = a mistake the exercise did not target (for example in free writing). Only targeted attempts count for mastery (Step 4).
 - [ ] `submission_id`: all rows from one answer share it (a `uuid`). We count answers by submission, not by row.
@@ -161,7 +161,11 @@ This step has no screen to show, but every later step depends on it.
 - [ ] Write pytest tests with a temporary database: save one attempt and read it back; an unknown exercise\_id is refused; an unknown skill\_id is refused; `init_db()` twice gives no duplicates; a skill missing from `skills.py` raises an error.
 
 - [ ] `GapExercise` checks: one `___`, expected answer not empty, a fill-the-gap skill id, hint not empty, the hint does not contain the expected answer or an accepted answer (whole words), accepted answers with no empty items, no duplicates and not the expected answer.
-- [ ] The demo script chooses ONE random A2 fill-the-gap skill in code and passes it to the prompt (the AI does not choose the skill).
+- [ ] The demo script chooses ONE random A2 fill-the-gap skill in code and passes it to the prompt (the AI does not choose the skill). It also accepts a skill id: `python -m scripts.step1_demo present_simple`.
+- [ ] The AI returns a `GapExerciseDraft` (sentence, expected answer, accepted answers, hint). The code adds `skill_id` and `level` to build the `GapExercise`.
+- [ ] The prompt gets ONE skill: name, typical mistake (only an illustration: do not reuse its sentence or words), `tag_when` (the line is left out when the skill has none), a sub-topic and the last 5 sentences on that skill to avoid.
+- [ ] A sentence identical (after normalizing) to one already saved for that skill is an invalid answer: `llm.ask()` retries once.
+- [ ] `choose_random_skill(level)` picks a fill-the-gap skill at or below the level.
 
 **Done when:** a small script asks the AI for one fill-the-gap sentence, gets a valid object with a skill id from your list, and saves it in the database.
 

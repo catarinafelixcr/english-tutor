@@ -6,6 +6,7 @@ Rules:
 - All dates are stored in UTC, in ISO format: 2026-11-16T21:04:05+00:00
 """
 
+import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -39,8 +40,11 @@ CREATE TABLE IF NOT EXISTS exercises (
     skill_id         TEXT NOT NULL REFERENCES skills (id),
     level            TEXT NOT NULL,
     topic            TEXT,
+    sub_topic        TEXT,
     prompt_text      TEXT NOT NULL,
     expected_answer  TEXT,
+    accepted_answers TEXT NOT NULL DEFAULT '[]',
+    hint             TEXT,
     model            TEXT,
     prompt_version   TEXT,
     created_at       TEXT NOT NULL
@@ -97,8 +101,11 @@ ON CONFLICT (id) DO UPDATE SET
 """
 
 INSERT_EXERCISE_SQL = """
-INSERT INTO exercises (section, skill_id, level, topic, prompt_text, expected_answer, model, prompt_version, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO exercises (
+    section, skill_id, level, topic, sub_topic, prompt_text, expected_answer, accepted_answers, hint, model,
+    prompt_version, created_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 INSERT_ATTEMPT_SQL = """
@@ -194,9 +201,14 @@ def save_exercise(exercise, database_path=DEFAULT_DATABASE_PATH):
         raise TypeError("save_exercise() needs an Exercise model, not " + type(exercise).__name__)
 
     created_at = exercise.created_at or utc_now()
+
+    # A list cannot go in one SQLite column, so it is saved as JSON text: ["is working", "'s working"]
+    accepted_answers_text = json.dumps(exercise.accepted_answers, ensure_ascii=False)
+
     exercise_values = (
-        exercise.section, exercise.skill_id, exercise.level, exercise.topic, exercise.prompt_text,
-        exercise.expected_answer, exercise.model, exercise.prompt_version, to_iso_text(created_at),
+        exercise.section, exercise.skill_id, exercise.level, exercise.topic, exercise.sub_topic, exercise.prompt_text,
+        exercise.expected_answer, accepted_answers_text, exercise.hint, exercise.model, exercise.prompt_version,
+        to_iso_text(created_at),
     )
 
     with connect(database_path) as connection:
@@ -244,3 +256,18 @@ def get_attempts(skill_id=None, database_path=DEFAULT_DATABASE_PATH):
     attempts_table["hint_used"] = attempts_table["hint_used"].astype(bool)
 
     return attempts_table
+
+
+def get_exercise_sentences(skill_id, database_path=DEFAULT_DATABASE_PATH):
+    # Every sentence already saved for one skill, newest first. Used to avoid the same sentence again.
+    query = "SELECT prompt_text FROM exercises WHERE skill_id = ? ORDER BY created_at DESC, id DESC"
+
+    with connect(database_path) as connection:
+        sentence_rows = connection.execute(query, (skill_id,)).fetchall()
+
+    sentences = []
+
+    for sentence_row in sentence_rows:
+        sentences.append(sentence_row[0])
+
+    return sentences

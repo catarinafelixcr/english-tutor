@@ -1,9 +1,9 @@
-"""Tests for the AI answer models in tutor/schemas.py (GapExercise)."""
+"""Tests for the AI answer models in tutor/schemas.py (GapExerciseDraft and GapExercise)."""
 
 import pytest
 from pydantic import ValidationError
 
-from tutor.schemas import GapExercise
+from tutor.schemas import GapExercise, GapExerciseDraft, make_gap_exercise_draft_schema
 
 
 def make_gap_exercise_values():
@@ -126,3 +126,78 @@ def test_an_unknown_level_is_refused():
 
     with pytest.raises(ValidationError):
         GapExercise(**exercise_values)
+
+
+# ---------- GapExerciseDraft: what the AI returns ----------
+
+def make_draft_values():
+    return {"sentence": "She ___ (work) in a bank.", "expected_answer": "works", "accepted_answers": [],
+            "hint": "he / she / it"}
+
+
+def test_a_good_draft_is_accepted():
+    draft = GapExerciseDraft(**make_draft_values())
+
+    assert draft.sentence == "She ___ (work) in a bank."
+
+
+@pytest.mark.parametrize("field_name, field_value", [("skill_id", "present_simple"), ("level", "A2")])
+def test_the_draft_refuses_skill_id_and_level_from_the_ai(field_name, field_value):
+    # The code chooses the skill and the level: the AI is not allowed to send them.
+    draft_values = make_draft_values()
+    draft_values[field_name] = field_value
+
+    with pytest.raises(ValidationError):
+        GapExerciseDraft(**draft_values)
+
+
+def test_the_draft_keeps_the_hint_check():
+    draft_values = make_draft_values()
+    draft_values["hint"] = "Use works."
+
+    with pytest.raises(ValidationError, match="gives the expected answer"):
+        GapExerciseDraft(**draft_values)
+
+
+def test_a_gap_exercise_is_built_from_a_draft_plus_skill_and_level():
+    draft = GapExerciseDraft(**make_draft_values())
+
+    gap_exercise = GapExercise(**draft.model_dump(), skill_id="present_simple", level="A2")
+
+    assert gap_exercise.sentence == draft.sentence
+    assert gap_exercise.skill_id == "present_simple"
+    assert gap_exercise.level == "A2"
+
+
+@pytest.mark.parametrize("used_sentence", ["She ___ (work) in a bank.", "she ___ (work)   in a BANK."])
+def test_a_sentence_already_used_for_the_skill_is_refused(used_sentence):
+    # Identical after normalizing (capital letters and spaces) = already used.
+    draft_schema = make_gap_exercise_draft_schema([used_sentence])
+
+    with pytest.raises(ValidationError, match="already used"):
+        draft_schema(**make_draft_values())
+
+
+def test_a_new_sentence_is_accepted_by_the_schema_with_used_sentences():
+    draft_schema = make_gap_exercise_draft_schema(["He ___ (live) in Lisbon."])
+
+    draft = draft_schema(**make_draft_values())
+
+    assert draft.expected_answer == "works"
+
+
+def test_the_used_sentences_are_not_sent_to_the_ai():
+    # used_sentences is a ClassVar, not a field: it is not in the JSON schema that the AI receives.
+    draft_schema = make_gap_exercise_draft_schema(["He ___ (live) in Lisbon."])
+
+    schema_fields = draft_schema.model_json_schema()["properties"]
+
+    assert list(schema_fields) == ["sentence", "expected_answer", "accepted_answers", "hint"]
+
+
+def test_the_plain_draft_has_no_used_sentences():
+    make_gap_exercise_draft_schema(["She ___ (work) in a bank."])
+
+    draft = GapExerciseDraft(**make_draft_values())
+
+    assert draft.sentence == "She ___ (work) in a bank."

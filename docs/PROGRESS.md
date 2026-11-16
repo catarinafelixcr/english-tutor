@@ -1,6 +1,6 @@
 # Progress
 
-Current step: **Step 1 - Foundation** (not started)
+Current step: **Step 1 - Foundation** (done 2026-11-16). Next: Step 2 - Practice (not started)
 
 Tick a task when it is finished. Write the date when a step is done.
 
@@ -25,11 +25,11 @@ Done on: 2026-11-16
 - [x] Part 2: database (`tutor/db.py`, `Exercise` and `Attempt` models) with tests
 - [x] Part 3: `GapExercise` schema and first prompt
 - [x] Part 4: AI engine (`tutor/llm.py`), 429 experiment, request counter
-- [ ] Part 5: demo script (`scripts/step1_demo.py`)
+- [x] Part 5: demo script (`scripts/step1_demo.py`), one skill per prompt, no repeated sentences
 
 Done when: a small script asks the AI for one fill-the-gap sentence, gets a valid object with a skill id from your list, and saves it in the database.
 
-Done on:
+Done on: 2026-11-16
 
 ## Step 2 – Practice
 

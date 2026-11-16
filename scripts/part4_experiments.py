@@ -31,6 +31,38 @@ TIMEOUT_SECONDS = 60
 FLASH_MODEL_FOR_THE_429_EXPERIMENT = "gemini-3.8-flash"
 NUMBER_OF_REQUESTS_FOR_THE_429_EXPERIMENT = 6
 
+# A frozen copy of the Step 1 prompt, as it was when E1-E4 ran (the AI chose the skill from a list).
+# tutor/prompts.py has a new prompt with ONE skill (Part 5); this copy keeps the experiments a true record.
+OLD_GAP_EXERCISE_TEMPLATE = """You are an English teacher. The learner is a Portuguese speaker from Portugal.
+
+Write ONE fill-the-gap exercise in English.
+
+Level (CEFR): {level}
+Topic of the sentence: {topic}
+
+Rules:
+- The sentence has exactly one gap, written as ___ (three underscores). Do not use underscores anywhere else.
+- The gap tests ONE skill from the list below. Choose skill_id only from this list. Never invent a skill.
+- Use the "typical mistake" and "tag when" columns to choose the right skill.
+- Only one idea must fit the gap, so the learner can find it. When the skill is about a verb form,
+  write the base verb in brackets after the gap, for example: She ___ (work) in a bank.
+- expected_answer: the word or words that fill the gap.
+- accepted_answers: other answers a native speaker would also accept. Use an empty list if there are none.
+- hint: a short clue that helps but does not give the answer.
+- level: {level}
+
+Skills (id | name | level | typical mistake | tag when):
+{skill_list}
+"""
+
+
+def build_old_gap_exercise_prompt(level, topic, skill_list):
+    skill_list_text = skills.skills_as_prompt_text(skill_list)
+    prompt_text = OLD_GAP_EXERCISE_TEMPLATE.format(level=level, topic=topic, skill_list=skill_list_text)
+    prompt_version = prompts.make_prompt_version("gap_exercise", OLD_GAP_EXERCISE_TEMPLATE)
+
+    return prompt_text, prompt_version
+
 
 # ---------- settings and client ----------
 
@@ -50,17 +82,6 @@ def create_client(settings, api_key):
     # max_retries=0: the openai client must not retry by itself (we want to see every error).
     # OpenAI() only accepts these arguments by name.
     return OpenAI(base_url=settings["AI_BASE_URL"], api_key=api_key, max_retries=0, timeout=TIMEOUT_SECONDS)
-
-
-def get_fill_the_gap_skills_up_to_level(level):
-    allowed_levels = skills.VALID_LEVELS[:skills.VALID_LEVELS.index(level) + 1]
-    selected_skills = []
-
-    for skill in skills.get_fill_the_gap_skills():
-        if skill["level"] in allowed_levels:
-            selected_skills.append(skill)
-
-    return selected_skills
 
 
 def make_gap_exercise_schema_with_skill_enum():
@@ -111,8 +132,8 @@ def print_gap_exercise_result(response, seconds_taken):
 # ---------- one request ----------
 
 def ask_for_one_gap_exercise(client, model, schema, reasoning_effort):
-    prompt_text, prompt_version = prompts.build_gap_exercise_prompt("A2", "daily life",
-                                                                    get_fill_the_gap_skills_up_to_level("A2"))
+    prompt_text, prompt_version = build_old_gap_exercise_prompt("A2", "daily life",
+                                                                skills.get_fill_the_gap_skills_up_to_level("A2"))
     request_options = {"model": model, "messages": [{"role": "user", "content": prompt_text}],
                        "response_format": schema}
 
