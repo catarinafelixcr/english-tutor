@@ -19,7 +19,8 @@ Newest entry at the top. One entry per work session.
   - `grade_gap_answer()` (`efc22d0`): code first, then the AI, one retry for bad quotes, fallback to my answer, `GapResult` for the page.
   - Grade demo (`c36e80e`) and the fixes it showed (`6a5493e`).
   - The exercise stock (`bc6b5d5`): `get_next_gap_exercise()`.
-- Tests: 327 in total (199 at the end of Part 1, so 128 new, with the code check of `afecebd`), ruff clean.
+- Tests: 327 in total (199 at the end of Part 1, so 128 new, with the code check of `afecebd`), ruff clean. Pushed to GitHub.
+- Learning notes 010 (database transactions: all or nothing) and 011 (one object shared by several calls: the request budget).
 
 **The batch demo (present simple, A2, daily life)**
 
