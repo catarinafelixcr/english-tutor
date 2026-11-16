@@ -11,9 +11,9 @@ import pytest
 from pydantic import ValidationError
 
 from tutor import db, skills
-from tutor.schemas import Attempt, Exercise
+from tutor.schemas import Attempt, Exercise, ProblemReport
 
-ALL_TABLES = ["skills", "exercises", "attempts", "reviews", "lessons", "lesson_events"]
+ALL_TABLES = ["skills", "exercises", "attempts", "reviews", "lessons", "lesson_events", "problem_reports"]
 
 
 # ---------- helpers ----------
@@ -582,3 +582,119 @@ def test_a_date_without_time_zone_is_refused():
 
     with pytest.raises(ValidationError, match="time zone"):
         Attempt(**attempt_values)
+
+
+# ---------- one answer is never saved twice (Step 2, Part 3) ----------
+
+def test_the_same_answer_saved_twice_is_refused_and_nothing_changes(database_path):
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+    attempt = make_wrong_attempt(exercise_id, "to_be")
+    db.save_attempts([attempt], database_path)
+
+    with pytest.raises(db.AnswerAlreadySavedError):
+        db.save_attempts([attempt], database_path)
+
+    assert count_rows(database_path, "attempts") == 1
+
+
+def test_is_answer_saved(database_path):
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+    attempt = make_wrong_attempt(exercise_id, "to_be")
+
+    assert db.is_answer_saved(attempt.submission_id, database_path) is False
+
+    db.save_attempt(attempt, database_path)
+
+    assert db.is_answer_saved(attempt.submission_id, database_path) is True
+
+
+# ---------- problem reports (Step 2, Part 3) ----------
+
+def make_report(exercise_id, submission_id, kind):
+    return ProblemReport(exercise_id=exercise_id, submission_id=submission_id, kind=kind, your_answer="am",
+                         comment="two answers fit")
+
+
+def test_save_a_problem_report_and_read_it_back(database_path):
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+
+    new_row_saved = db.save_problem_report(make_report(exercise_id, "submission-1", "bad_sentence"), database_path)
+    saved_reports = db.get_problem_reports(database_path)
+
+    assert new_row_saved is True
+    assert len(saved_reports) == 1
+    assert saved_reports.loc[0, "exercise_id"] == exercise_id
+    assert saved_reports.loc[0, "kind"] == "bad_sentence"
+    assert saved_reports.loc[0, "your_answer"] == "am"
+    assert saved_reports.loc[0, "comment"] == "two answers fit"
+
+
+def test_the_same_report_twice_is_saved_once(database_path):
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+    report = make_report(exercise_id, "submission-1", "wrong_grade")
+
+    db.save_problem_report(report, database_path)
+    new_row_saved = db.save_problem_report(report, database_path)
+
+    assert new_row_saved is False
+    assert count_rows(database_path, "problem_reports") == 1
+
+
+def test_one_answer_can_have_both_kinds_of_report(database_path):
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+
+    db.save_problem_report(make_report(exercise_id, "submission-1", "bad_sentence"), database_path)
+    db.save_problem_report(make_report(exercise_id, "submission-1", "wrong_grade"), database_path)
+
+    assert count_rows(database_path, "problem_reports") == 2
+
+
+def test_a_report_about_an_unknown_exercise_is_refused(database_path):
+    with pytest.raises(sqlite3.IntegrityError):
+        db.save_problem_report(make_report(9999, "submission-1", "bad_sentence"), database_path)
+
+
+def test_a_report_needs_a_known_kind():
+    with pytest.raises(ValidationError):
+        ProblemReport(exercise_id=1, submission_id="submission-1", kind="boring_sentence")
+
+
+def test_save_problem_report_needs_a_report_model(database_path):
+    with pytest.raises(TypeError):
+        db.save_problem_report({"kind": "bad_sentence"}, database_path)
+
+
+def test_a_sentence_reported_as_bad_leaves_the_stock(database_path):
+    bad_id = save_practice_exercise(database_path, "to_be", "A2", "travel", "gap", "I ___ tired.")
+    good_id = save_practice_exercise(database_path, "to_be", "A2", "travel", "gap", "We ___ late.")
+    db.save_problem_report(make_report(bad_id, "submission-1", "bad_sentence"), database_path)
+
+    unanswered_exercises = db.get_unanswered_exercises("gap", "A2", "to_be", "travel", database_path)
+
+    assert len(unanswered_exercises) == 1
+    assert unanswered_exercises[0][0] == good_id
+
+
+def test_a_wrong_grade_report_does_not_remove_the_sentence_from_the_stock(database_path):
+    exercise_id = save_practice_exercise(database_path, "to_be", "A2", "travel", "gap", "I ___ tired.")
+    db.save_problem_report(make_report(exercise_id, "submission-1", "wrong_grade"), database_path)
+
+    unanswered_exercises = db.get_unanswered_exercises("gap", "A2", "to_be", "travel", database_path)
+
+    assert len(unanswered_exercises) == 1
+
+
+def test_init_db_adds_the_reports_table_to_an_existing_database_without_a_migration(database_path):
+    # A database made before Part 3 has no problem_reports table. init_db() creates it, and keeps the data.
+    exercise_id = db.save_exercise(make_exercise("to_be"), database_path)
+
+    with db.connect(database_path) as connection:
+        connection.execute("DROP TABLE problem_reports")
+
+    db.init_db(database_path)
+
+    db.save_problem_report(make_report(exercise_id, "submission-1", "bad_sentence"), database_path)
+
+    assert count_rows(database_path, "problem_reports") == 1
+    assert count_rows(database_path, "exercises") == 1
+    assert list((database_path.parent / "backups").glob("*.db")) == []

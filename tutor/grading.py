@@ -521,12 +521,21 @@ def make_ai_result(submission_id, your_answer, grade):
 
 def grade_gap_answer(exercise_id, exercise, your_answer, hint_used, seconds_taken,
                      explanation_language=prompts.DEFAULT_EXPLANATION_LANGUAGE,
-                     database_path=db.DEFAULT_DATABASE_PATH):
+                     database_path=db.DEFAULT_DATABASE_PATH, submission_id=None):
     # Grades one fill-the-gap answer, saves every row (CLAUDE.md, rule 3) and returns a GapResult.
     # The code first (no AI); the AI only when the code cannot decide (CLAUDE.md, rule 5).
     # An AI error goes up to the page: nothing is saved, so the exercise stays in the stock to try again.
+    # submission_id: the page reserves one per exercise on screen, so a double click or a rerun while the AI
+    # grades can never save the same answer twice (db.AnswerAlreadySavedError). None = a new one (scripts, tests).
     result_kind, matched_answer = check_answer_in_code(your_answer, exercise)
-    submission_id = db.new_submission_id()
+
+    if submission_id is None:
+        submission_id = db.new_submission_id()
+
+    # Checked BEFORE the AI call, so a repeated answer spends no request. save_attempts() checks again under a lock,
+    # for two runs that both pass this line at the same moment.
+    if db.is_answer_saved(submission_id, database_path):
+        raise db.AnswerAlreadySavedError("this answer is already saved (submission " + submission_id + ")")
 
     if result_kind == EXACT_MATCH:
         return grade_exact_match(submission_id, exercise_id, exercise, your_answer, matched_answer, hint_used,

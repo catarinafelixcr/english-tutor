@@ -18,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 from tutor import skills
-from tutor.schemas import Attempt, Exercise
+from tutor.schemas import Attempt, Exercise, ProblemReport
 
 PROJECT_FOLDER = Path(__file__).resolve().parent.parent
 DEFAULT_DATABASE_PATH = PROJECT_FOLDER / "data" / "tutor.db"
@@ -95,6 +95,19 @@ CREATE TABLE IF NOT EXISTS lesson_events (
     skill_id   TEXT NOT NULL REFERENCES skills (id),
     opened_at  TEXT NOT NULL
 );
+
+-- Step 2, Part 3. A NEW table needs no migration: this line creates it in an old database too.
+-- UNIQUE: a double click on "Send report" saves one row, not two.
+CREATE TABLE IF NOT EXISTS problem_reports (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    exercise_id    INTEGER NOT NULL REFERENCES exercises (id),
+    submission_id  TEXT NOT NULL,
+    kind           TEXT NOT NULL,
+    your_answer    TEXT NOT NULL DEFAULT '',
+    comment        TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL,
+    UNIQUE (submission_id, kind)
+);
 """
 
 # Migrations: for each version number, the SQL statements that bring the database from the version before to it.
@@ -127,6 +140,16 @@ INSERT INTO attempts (
 )
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+# OR IGNORE: the same report twice (same answer, same kind) is skipped without an error.
+INSERT_PROBLEM_REPORT_SQL = """
+INSERT OR IGNORE INTO problem_reports (exercise_id, submission_id, kind, your_answer, comment, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+"""
+
+
+class AnswerAlreadySavedError(Exception):
+    """This answer (its submission_id) is already in the database: a double click, or a rerun while grading."""
 
 
 # ---------- small helpers ----------
@@ -273,6 +296,21 @@ def save_exercise(exercise, database_path=DEFAULT_DATABASE_PATH):
     return new_exercise_id
 
 
+def submission_is_saved(connection, submission_id):
+    # Receives an open connection, so save_attempts() can use it inside its own transaction.
+    query = "SELECT 1 FROM attempts WHERE submission_id = ? LIMIT 1"
+
+    return connection.execute(query, (submission_id,)).fetchone() is not None
+
+
+def is_answer_saved(submission_id, database_path=DEFAULT_DATABASE_PATH):
+    # For grading: a quick check BEFORE the AI call, so a repeated answer spends no request.
+    with connect(database_path) as connection:
+        answer_is_saved = submission_is_saved(connection, submission_id)
+
+    return answer_is_saved
+
+
 def make_attempt_values(attempt, default_created_at):
     # The values of one attempt, in the order of INSERT_ATTEMPT_SQL.
     created_at = attempt.created_at or default_created_at
@@ -308,6 +346,13 @@ def save_attempts(attempt_list, database_path=DEFAULT_DATABASE_PATH):
     new_attempt_ids = []
 
     with connect(database_path) as connection:
+        # BEGIN IMMEDIATE takes the write lock NOW, before the check: a second writer waits here until we finish.
+        # So "already saved?" and the inserts happen as one step, and one answer can never be saved twice.
+        connection.execute("BEGIN IMMEDIATE")
+
+        if submission_is_saved(connection, first_submission_id):
+            raise AnswerAlreadySavedError("this answer is already saved (submission " + first_submission_id + ")")
+
         for attempt in attempt_list:
             cursor = connection.execute(INSERT_ATTEMPT_SQL, make_attempt_values(attempt, default_created_at))
             new_attempt_ids.append(cursor.lastrowid)
@@ -323,6 +368,34 @@ def save_attempt(attempt, database_path=DEFAULT_DATABASE_PATH):
     new_attempt_ids = save_attempts([attempt], database_path)
 
     return new_attempt_ids[0]
+
+
+def save_problem_report(report, database_path=DEFAULT_DATABASE_PATH):
+    # Returns True if a new row was saved, False if the same report (same answer, same kind) was already there.
+    if not isinstance(report, ProblemReport):
+        raise TypeError("save_problem_report() needs a ProblemReport model, not " + type(report).__name__)
+
+    created_at = report.created_at or utc_now()
+    report_values = (report.exercise_id, report.submission_id, report.kind, report.your_answer, report.comment,
+                     to_iso_text(created_at))
+
+    with connect(database_path) as connection:
+        cursor = connection.execute(INSERT_PROBLEM_REPORT_SQL, report_values)
+        new_row_saved = cursor.rowcount == 1
+
+    return new_row_saved
+
+
+def get_problem_reports(database_path=DEFAULT_DATABASE_PATH):
+    # All reports as a pandas DataFrame, oldest first. For Part 4 (gold file) and the hand review.
+    query = "SELECT * FROM problem_reports ORDER BY created_at, id"
+
+    with connect(database_path) as connection:
+        reports_table = pd.read_sql_query(query, connection)
+
+    reports_table["created_at"] = pd.to_datetime(reports_table["created_at"], utc=True)
+
+    return reports_table
 
 
 # ---------- reading ----------
@@ -376,11 +449,13 @@ def row_to_exercise(exercise_row):
 def get_unanswered_exercises(exercise_type, level, skill_id=None, topic=None, database_path=DEFAULT_DATABASE_PATH):
     # Practice exercises that were created but never answered, oldest first, as a list of (exercise id, Exercise).
     # The page shows these before asking the AI for new ones (no request spent).
-    # skill_id or topic = None means "any".
+    # skill_id or topic = None means "any". A sentence I reported as bad never comes back.
     query = """
     SELECT * FROM exercises
     WHERE section = 'practice' AND exercise_type = ? AND level = ?
       AND NOT EXISTS (SELECT 1 FROM attempts WHERE attempts.exercise_id = exercises.id)
+      AND NOT EXISTS (SELECT 1 FROM problem_reports
+                      WHERE problem_reports.exercise_id = exercises.id AND problem_reports.kind = 'bad_sentence')
     """
     query_values = [exercise_type, level]
 

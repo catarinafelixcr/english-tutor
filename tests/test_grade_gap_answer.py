@@ -4,6 +4,7 @@ A temporary database and a FAKE llm.ask(): no internet, no quota.
 """
 
 import json
+import threading
 
 import pytest
 
@@ -367,3 +368,73 @@ def test_the_prompt_gets_my_full_sentence_without_the_bracket(database_path, mon
     grading.grade_gap_answer(exercise_id, exercise, "write", False, 6.0, "English", database_path)
 
     assert "The learner's full sentence: She has write the report already." in fake_ask.prompts_received[0]
+
+
+# ---------- one answer is never saved twice (Step 2, Part 3) ----------
+
+def test_the_same_answer_graded_twice_is_refused_before_the_ai_call(database_path, monkeypatch):
+    # A double click on Check: the second grading stops BEFORE the AI, so no request is spent.
+    fake_ask = install_fake_ask(monkeypatch, [partial_grade("has write")])
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", WRITE_SENTENCE, "written")
+    submission_id = db.new_submission_id()
+
+    first_result = grading.grade_gap_answer(exercise_id, exercise, "write", False, 6.0, "English", database_path,
+                                            submission_id)
+
+    with pytest.raises(db.AnswerAlreadySavedError):
+        grading.grade_gap_answer(exercise_id, exercise, "write", False, 7.0, "English", database_path, submission_id)
+
+    saved_attempts = db.get_attempts(database_path=database_path)
+
+    assert first_result.submission_id == submission_id
+    assert len(fake_ask.prompts_received) == 1
+    assert len(saved_attempts) == 1
+    assert saved_attempts.loc[0, "seconds_taken"] == 6.0
+
+
+def test_the_same_exact_match_graded_twice_is_saved_once(database_path, monkeypatch):
+    install_fake_ask(monkeypatch, [])
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", WRITE_SENTENCE, "written")
+    submission_id = db.new_submission_id()
+
+    grading.grade_gap_answer(exercise_id, exercise, "written", False, 6.0, "English", database_path, submission_id)
+
+    with pytest.raises(db.AnswerAlreadySavedError):
+        grading.grade_gap_answer(exercise_id, exercise, "written", False, 6.0, "English", database_path,
+                                 submission_id)
+
+    assert len(db.get_attempts(database_path=database_path)) == 1
+
+
+def test_two_gradings_at_the_same_moment_save_the_answer_once(database_path, monkeypatch):
+    # A rerun while the AI is grading: Streamlit starts a second run, and the first one can still finish.
+    # The barrier holds both threads inside the fake AI call, so BOTH have passed the first check
+    # (is_answer_saved) before either one saves. Only the lock in save_attempts() can stop the second one.
+    both_threads_are_grading = threading.Barrier(2, timeout=10)
+
+    def slow_fake_ask(prompt_text, prompt_version, schema, task, budget=None, settings=None):
+        both_threads_are_grading.wait()
+        return schema(**partial_grade("has write")), "fake-test-model"
+
+    monkeypatch.setattr(llm, "ask", slow_fake_ask)
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", WRITE_SENTENCE, "written")
+    submission_id = db.new_submission_id()
+    outcomes = []
+
+    def grade_in_a_thread():
+        try:
+            grading.grade_gap_answer(exercise_id, exercise, "write", False, 6.0, "English", database_path,
+                                     submission_id)
+            outcomes.append("saved")
+        except db.AnswerAlreadySavedError:
+            outcomes.append("already saved")
+
+    first_thread = threading.Thread(target=grade_in_a_thread)
+    second_thread = threading.Thread(target=grade_in_a_thread)
+    first_thread.start()
+    second_thread.start()
+    first_thread.join(timeout=20)
+    second_thread.join(timeout=20)
+
+    assert sorted(outcomes) == ["already saved", "saved"]
+    assert len(db.get_attempts(database_path=database_path)) == 1

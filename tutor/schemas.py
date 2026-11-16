@@ -150,6 +150,28 @@ class Attempt(BaseModel):
         return self
 
 
+class ProblemReport(BaseModel):
+    """One row of the "problem_reports" table: I tell the app that a sentence or a grade was bad (Step 2, Part 3).
+
+    bad_sentence: the exercise itself is wrong (two answers fit, no clear signal...). It never comes back.
+    wrong_grade: the sentence is fine, but the verdict or the explanation was wrong. Useful for the gold file.
+    """
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    exercise_id: int
+    submission_id: str = Field(min_length=1)
+    kind: Literal["bad_sentence", "wrong_grade"]
+    your_answer: str = ""
+    comment: str = ""
+    created_at: datetime | None = None
+
+    @field_validator("created_at")
+    @classmethod
+    def created_at_must_be_utc(cls, created_at):
+        return convert_to_utc(created_at)
+
+
 # ---------- AI answers ----------
 
 class GapExerciseDraft(BaseModel):
