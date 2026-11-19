@@ -282,6 +282,19 @@ def test_a_batch_with_no_valid_item_saves_nothing(database_path, monkeypatch, dr
     assert db.get_exercise_sentences("to_be", database_path) == []
 
 
+def test_create_gap_exercises_checks_the_clue_of_the_skill(database_path, monkeypatch, dropped_log_path):
+    # to_be has no clue: an item with a verb in brackets is dropped, the 4 others are saved.
+    sentences = list(FIVE_GOOD_SENTENCES)
+    sentences[2] = "I ___ (be) ready to check in."
+    install_fake_batch_ask(monkeypatch, sentences)
+
+    saved_exercises = exercises.create_gap_exercises("to_be", "A2", "travel", database_path)
+    log_lines = read_log_lines(dropped_log_path)
+
+    assert len(saved_exercises) == 4
+    assert "has no clue, but the sentence has brackets" in log_lines[0]["reason"]
+
+
 @pytest.mark.parametrize("skill_id, level, error_text", [("capitalization", "A2", "cannot be used in fill the gap"),
                                                          ("inversion", "A2", "above the level")])
 def test_create_gap_exercises_checks_skill_and_level_before_asking(database_path, monkeypatch, skill_id, level,

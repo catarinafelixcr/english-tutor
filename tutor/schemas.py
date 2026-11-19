@@ -188,6 +188,10 @@ class GapExerciseDraft(BaseModel):
     # the ClassVar annotation to know that. Empty here; make_gap_exercise_draft_schema() fills it.
     used_sentences: ClassVar[tuple] = ()
 
+    # The clue type of the skill (skills.GAP_CLUES): "base_word", "words", "portuguese" or "none".
+    # Empty = no clue check (the Step 1 prompt, kept as a record). make_gap_exercise_draft_schema() fills it.
+    gap_clue: ClassVar[str] = ""
+
     # The field order is the order the AI writes them: it names the signal right after the sentence,
     # before the answer. signal = the exact words of the sentence that make the tested form the only natural one.
     sentence: str
@@ -282,6 +286,38 @@ class GapExerciseDraft(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def clue_must_match_the_skill(self):
+        # The brackets must be the clue type of the skill (Step 2, Part 3b). Round brackets only: the grader
+        # removes the clue "___ (...)" before checking quotes, and does not know square brackets.
+        if self.gap_clue == "":
+            return self
+
+        if "[" in self.sentence or "]" in self.sentence:
+            raise ValueError("the sentence has square brackets; the clue needs round brackets: " + self.sentence)
+
+        bracket_texts = re.findall(r"\(([^)]*)\)", self.sentence)
+
+        if self.gap_clue == "none":
+            if len(bracket_texts) > 0:
+                raise ValueError("this skill has no clue, but the sentence has brackets: " + self.sentence)
+
+            return self
+
+        if len(bracket_texts) != 1 or re.search(r"___ ?\([^)]*\S[^)]*\)", self.sentence) is None:
+            raise ValueError("the sentence needs one clue in round brackets right after the gap: " + self.sentence)
+
+        if self.gap_clue == "portuguese":
+            self.check_the_portuguese_clue_has_no_answer(bracket_texts[0])
+
+        return self
+
+    def check_the_portuguese_clue_has_no_answer(self, bracket_text):
+        # (fazer) is a clue; (make) would give the answer away.
+        for answer in [self.expected_answer] + self.accepted_answers:
+            if contains_whole_words(bracket_text, answer):
+                raise ValueError("the Portuguese clue contains the English answer: (" + bracket_text + ")")
+
+    @model_validator(mode="after")
     def sentence_must_be_new(self):
         # Same sentence after normalizing (capital letters, spaces) = already used = an invalid answer.
         for used_sentence in self.used_sentences:
@@ -291,13 +327,14 @@ class GapExerciseDraft(BaseModel):
         return self
 
 
-def make_gap_exercise_draft_schema(sentences_already_saved):
-    # A copy of GapExerciseDraft that also refuses the sentences already saved for this skill.
-    # The JSON schema sent to the AI is the same: used_sentences is not a field.
-    # The argument has another name on purpose: inside a class body, Python cannot read a function argument
-    # with the same name as the class attribute being defined (NameError).
+def make_gap_exercise_draft_schema(sentences_already_saved, gap_clue_of_the_skill=""):
+    # A copy of GapExerciseDraft that also refuses the sentences already saved for this skill, and checks the
+    # clue type of the skill ("" = no clue check). The JSON schema sent to the AI is the same: ClassVars are
+    # not fields. The arguments have other names on purpose: inside a class body, Python cannot read a function
+    # argument with the same name as the class attribute being defined (NameError).
     class NewGapExerciseDraft(GapExerciseDraft):
         used_sentences: ClassVar[tuple] = tuple(sentences_already_saved)
+        gap_clue: ClassVar[str] = gap_clue_of_the_skill
 
     return NewGapExerciseDraft
 
@@ -390,10 +427,10 @@ class GapExerciseBatch(BaseModel):
         return self
 
 
-def make_gap_exercise_batch_schema(sentences_already_saved):
-    # A copy of GapExerciseBatch whose items must also be new sentences for this skill.
+def make_gap_exercise_batch_schema(sentences_already_saved, gap_clue_of_the_skill):
+    # A copy of GapExerciseBatch whose items must also be new sentences for this skill, with the skill's clue.
     # Different local name on purpose (see make_gap_exercise_draft_schema): no NameError in the class body.
-    new_draft_schema = make_gap_exercise_draft_schema(sentences_already_saved)
+    new_draft_schema = make_gap_exercise_draft_schema(sentences_already_saved, gap_clue_of_the_skill)
 
     class NewGapExerciseBatch(GapExerciseBatch):
         strict_draft_schema: ClassVar[type] = new_draft_schema

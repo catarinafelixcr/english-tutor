@@ -2,6 +2,8 @@
 
 import re
 
+import pytest
+
 from tutor import prompts, skills
 from tutor.schemas import Exercise
 
@@ -137,13 +139,69 @@ def test_the_batch_prompt_asks_for_hints_about_meaning_not_grammar():
     assert "Do not name the" in prompt_text
 
 
-def test_the_batch_prompt_asks_for_a_signal_that_makes_only_the_tested_form_natural():
+def test_the_batch_prompt_asks_for_a_signal_that_makes_only_the_tested_answer_natural():
     prompt_text, prompt_version = build_batch_prompt_for("to_be", [])
 
-    assert "makes the form of the tested skill the ONLY natural answer" in prompt_text
-    assert "no signal that calls for another\n  form" in prompt_text
+    assert "makes the answer of the tested skill the ONLY natural answer" in prompt_text
+    assert "no signal that calls for\n  another answer" in prompt_text
     assert "read each sentence again with the gap filled" in prompt_text
-    assert "Use vocabulary at the A2 level or easier" in prompt_text
+    assert "Use vocabulary at the A2 level or easier, and grammar at the A2 level or easier" in prompt_text
+
+
+def test_the_batch_prompt_says_the_gap_tests_only_its_skill():
+    # The bug of 2026-11-19: word_choice exercises that tested tenses.
+    prompt_text, prompt_version = build_batch_prompt_for("word_choice", [])
+
+    assert "The gap must test the skill above and nothing else" in prompt_text
+
+
+def test_the_batch_prompt_no_longer_speaks_about_time_words_or_verb_forms():
+    template_in_small_letters = prompts.GAP_EXERCISE_BATCH_TEMPLATE.lower()
+
+    for tense_words in ["time word", "base verb", "verb form", "another tense"]:
+        assert tense_words not in template_in_small_letters, tense_words
+
+
+@pytest.mark.parametrize("skill_id, gap_clue", [("past_simple", "base_word"), ("questions_negatives", "words"),
+                                                ("word_choice", "portuguese"), ("articles_a_an", "none")])
+def test_the_batch_prompt_has_only_the_clue_rules_of_the_skill(skill_id, gap_clue):
+    prompt_text, prompt_version = build_batch_prompt_for(skill_id, [])
+
+    for clue_type, clue_rules in prompts.GAP_CLUE_RULES.items():
+        if clue_type == gap_clue:
+            assert clue_rules in prompt_text, clue_type
+        else:
+            assert clue_rules not in prompt_text, clue_type
+
+
+def test_every_clue_type_has_clue_rules():
+    assert sorted(prompts.GAP_CLUE_RULES) == sorted(skills.GAP_CLUE_TYPES)
+
+
+def test_the_portuguese_clue_asks_for_european_portuguese_and_never_the_answer():
+    portuguese_rules = prompts.GAP_CLUE_RULES["portuguese"]
+
+    assert "European Portuguese, from Portugal" in portuguese_rules
+    assert "Never write the English answer" in portuguese_rules
+
+
+def test_the_prompt_version_is_the_same_for_every_clue_type():
+    base_word_text, base_word_version = build_batch_prompt_for("past_simple", [])
+    portuguese_text, portuguese_version = build_batch_prompt_for("word_choice", [])
+
+    assert base_word_version == portuguese_version
+
+
+def test_changing_one_clue_block_gives_a_new_prompt_version(monkeypatch):
+    prompt_text, old_prompt_version = build_batch_prompt_for("past_simple", [])
+    changed_clue_rules = dict(prompts.GAP_CLUE_RULES)
+    changed_clue_rules["none"] = changed_clue_rules["none"] + " One more word."
+    monkeypatch.setattr(prompts, "GAP_CLUE_RULES", changed_clue_rules)
+
+    # past_simple does not use the "none" block, but its version must still change.
+    prompt_text, new_prompt_version = build_batch_prompt_for("past_simple", [])
+
+    assert new_prompt_version != old_prompt_version
 
 
 def test_both_prompts_ask_for_the_signal():
@@ -162,6 +220,12 @@ def test_the_batch_template_has_no_example_of_one_particular_skill():
 
     for skill_specific_text in ["present simple", "(work)", "she ___", "every weekday"]:
         assert skill_specific_text not in template_in_small_letters, skill_specific_text
+
+    # The clue blocks too: each one is shared by many skills.
+    for clue_type, clue_rules in prompts.GAP_CLUE_RULES.items():
+        assert "___ (" not in clue_rules, clue_type
+        assert "(perder)" not in clue_rules, clue_type
+        assert "(fazer)" not in clue_rules, clue_type
 
 
 def test_the_batch_prompt_version_does_not_depend_on_the_values():

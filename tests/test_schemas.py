@@ -287,20 +287,107 @@ def test_a_batch_with_no_valid_item_is_an_invalid_answer():
 
 
 def test_a_batch_where_every_sentence_was_already_saved_is_an_invalid_answer():
-    batch_schema = make_gap_exercise_batch_schema(["She ___ (work) in a bank."])
+    batch_schema = make_gap_exercise_batch_schema(["She ___ (work) in a bank."], "base_word")
 
     with pytest.raises(ValidationError, match="already used"):
         batch_schema(exercises=[GOOD_ITEM])
 
 
 def test_the_batch_schema_sent_to_the_ai_has_only_the_exercises_list():
-    batch_schema = make_gap_exercise_batch_schema(["She ___ (work) in a bank."])
+    batch_schema = make_gap_exercise_batch_schema(["She ___ (work) in a bank."], "base_word")
 
     json_schema = batch_schema.model_json_schema()
     item_fields = json_schema["$defs"]["GapExerciseItem"]["properties"]
 
     assert list(json_schema["properties"]) == ["exercises"]
     assert list(item_fields) == ["sentence", "signal", "expected_answer", "accepted_answers", "hint"]
+
+
+# ---------- the clue after the gap must match the skill (Step 2, Part 3b) ----------
+
+def make_clue_draft_values(sentence, signal, expected_answer):
+    return {"sentence": sentence, "signal": signal, "expected_answer": expected_answer, "accepted_answers": [],
+            "hint": "a short clue"}
+
+
+@pytest.mark.parametrize("gap_clue, sentence, signal, expected_answer", [
+    ("base_word", "She ___ (work) in a bank every day.", "every day", "works"),
+    ("base_word", "If we had left earlier, we ___ (not / miss) the train.", "had left", "wouldn't have missed"),
+    ("words", "What ___ (he / ask) for in this email?", "What", "is he asking"),
+    ("portuguese", "I ___ (perder) the bus, so I was late for work.", "so I was late", "missed"),
+    ("none", "My sister is ___ engineer at a big company.", "engineer", "an"),
+])
+def test_a_sentence_with_the_clue_of_its_skill_is_accepted(gap_clue, sentence, signal, expected_answer):
+    draft_schema = make_gap_exercise_draft_schema([], gap_clue)
+
+    draft = draft_schema(**make_clue_draft_values(sentence, signal, expected_answer))
+
+    assert draft.sentence == sentence
+
+
+@pytest.mark.parametrize("gap_clue, sentence, error_text", [
+    ("none", "She is ___ (be) nurse every day.", "has no clue, but the sentence has brackets"),
+    ("none", "She (Ana) is ___ nurse every day.", "has no clue, but the sentence has brackets"),
+    ("base_word", "She ___ in a bank every day.", "one clue in round brackets right after the gap"),
+    ("base_word", "She (work) ___ in a bank every day.", "one clue in round brackets right after the gap"),
+    ("base_word", "She ___ () in a bank every day.", "one clue in round brackets right after the gap"),
+    ("words", "She ___ (work) in a bank (Lisbon) every day.", "one clue in round brackets right after the gap"),
+    ("base_word", "She ___ [work] in a bank every day.", "square brackets"),
+])
+def test_a_sentence_with_the_wrong_clue_is_refused(gap_clue, sentence, error_text):
+    # Every sentence contains the signal "every day", so only the clue check can refuse it.
+    draft_schema = make_gap_exercise_draft_schema([], gap_clue)
+
+    with pytest.raises(ValidationError, match=error_text):
+        draft_schema(**make_clue_draft_values(sentence, "every day", "works"))
+
+
+def test_a_portuguese_clue_that_contains_the_english_answer_is_refused():
+    draft_schema = make_gap_exercise_draft_schema([], "portuguese")
+    draft_values = make_clue_draft_values("I ___ (missed / perder) the bus, so I was late.", "so I was late",
+                                          "missed")
+
+    with pytest.raises(ValidationError, match="contains the English answer"):
+        draft_schema(**draft_values)
+
+
+def test_a_portuguese_clue_that_contains_an_accepted_answer_is_refused():
+    draft_schema = make_gap_exercise_draft_schema([], "portuguese")
+    draft_values = make_clue_draft_values("Please ___ (fill out) this form before Friday.", "this form",
+                                          "fill in")
+    draft_values["accepted_answers"] = ["fill out"]
+
+    with pytest.raises(ValidationError, match="contains the English answer"):
+        draft_schema(**draft_values)
+
+
+def test_the_plain_draft_does_not_check_the_clue():
+    # The Step 1 prompt (kept as a record) has no clue type: any brackets pass, as before.
+    draft = GapExerciseDraft(**make_clue_draft_values("She ___ [work] in a bank every day.", "every day",
+                                                      "works"))
+
+    assert draft.expected_answer == "works"
+
+
+def test_the_clue_type_is_not_sent_to_the_ai():
+    batch_schema = make_gap_exercise_batch_schema([], "portuguese")
+
+    item_fields = batch_schema.model_json_schema()["$defs"]["GapExerciseItem"]["properties"]
+
+    assert "gap_clue" not in item_fields
+
+
+def test_a_batch_drops_the_items_with_the_wrong_clue_and_keeps_the_others():
+    # The bug of 2026-11-19: a verb in brackets for a word_choice exercise.
+    batch_schema = make_gap_exercise_batch_schema([], "portuguese")
+    good_item = make_clue_draft_values("I ___ (perder) the bus, so I was late for work.", "so I was late", "missed")
+    tense_item = make_clue_draft_values("Last week, the team ___ [clean] the dataset.", "Last week", "cleaned")
+    items = make_items([good_item, tense_item])
+
+    valid_items, rejected_items = split_gap_exercise_items(items, batch_schema.strict_draft_schema)
+
+    assert len(valid_items) == 1
+    assert "square brackets" in rejected_items[0]["reason"]
 
 
 # ---------- the signal: the words that make only the tested form natural ----------

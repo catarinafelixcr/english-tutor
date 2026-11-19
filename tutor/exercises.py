@@ -129,7 +129,7 @@ def create_gap_exercises(skill_id, level, topic, database_path=db.DEFAULT_DATABA
 
     prompt_text, prompt_version = prompts.build_gap_exercise_batch_prompt(level, topic, sub_topics, skill,
                                                                           recent_sentences)
-    batch_schema = make_gap_exercise_batch_schema(used_sentences)
+    batch_schema = make_gap_exercise_batch_schema(used_sentences, skills.get_gap_clue(skill_id))
     batch, model_returned = llm.ask(prompt_text, prompt_version, batch_schema, "create", budget)
 
     # The batch schema already checked that at least one item is valid. Now we split the good from the bad.

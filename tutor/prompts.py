@@ -118,23 +118,58 @@ and from each other (other verbs, other words, other ideas):
 
 Rules for every exercise:
 - The sentence has exactly one gap, written as ___ (three underscores). Do not use underscores anywhere else.
-- The sentence must contain a clear signal (a time word, another word in the sentence, or the situation) that
-  makes the form of the tested skill the ONLY natural answer. It must contain no signal that calls for another
-  form, for example a time word that needs a different tense. The typical mistake above shows the kind of
-  difference this skill is about.
-- When the skill is about a verb form, write the base verb in brackets after the gap.
-- Use vocabulary at the {level} level or easier. The difficulty must be the skill, not the words.
+- The gap must test the skill above and nothing else. Do not turn it into a question about another skill.
+{clue_rules}
+- The sentence must contain a clear signal that makes the answer of the tested skill the ONLY natural answer:
+  other words of the sentence, or the meaning of the situation. It must contain no signal that calls for
+  another answer. The typical mistake above shows the kind of difference this skill is about.
+- Use vocabulary at the {level} level or easier, and grammar at the {level} level or easier.
+  The difficulty must be the skill, not the words.
 - signal: the exact words of your sentence that are this clear signal. Copy them from the sentence.
-  Not the gap, not the verb in brackets. If you cannot point to a signal, the sentence is ambiguous: rewrite it.
+  Not the gap, not the words in brackets. If you cannot point to a signal, the sentence is ambiguous: rewrite it.
 - expected_answer: the word or words that fill the gap.
-- accepted_answers: only answers that use the SAME grammar as the expected answer (for example a short form
-  of the same verb). Use an empty list if there are none.
+- accepted_answers: only other answers that are also natural in this sentence AND test the same thing as the
+  expected answer (for example a short form). Use an empty list if there are none.
 - hint: a short clue about the MEANING or the situation of the sentence, not about grammar. Do not name the
   rule, the tense or the grammar word. Never write the expected answer or an accepted answer in the hint.
 
-Before you answer, read each sentence again with the gap filled. If a different form would also be natural
-(another tense, another word), the sentence is ambiguous: rewrite it so only the tested form fits.
+Before you answer, read each sentence again with the gap filled. If a different answer would also be natural,
+the sentence is ambiguous: rewrite it so only the tested answer fits.
 """
+
+# The clue after the gap depends on the skill (skills.GAP_CLUES). Only the block of the skill's clue type goes
+# into the prompt. No example sentences here: an example of one skill would push every skill toward it.
+GAP_CLUE_RULES = {
+    "base_word": """- Clue: right after the gap, write ONE base word in round brackets: the base form of the verb, noun
+  or adjective the learner must change. The learner writes the right form, and adds any other words the
+  skill needs. For a negative answer, write not first, joined with a slash.
+- Write the word in brackets in its base form, never in the form of the answer.""",
+    "words": """- Clue: right after the gap, write in round brackets the words the learner must use, in their base
+  form, separated by a slash ( / ). The learner puts them in the right order and form.
+- When the order of the words is what the skill tests, do not write them already in the correct order.""",
+    "portuguese": """- Clue: right after the gap, write in round brackets the Portuguese word or short expression
+  (European Portuguese, from Portugal) that the learner must say in English. The gap tests which English word
+  is right for it.
+- Choose a Portuguese word that often leads Portuguese speakers to the typical mistake above.
+- Never write the English answer, or a part of it, in the brackets.""",
+    "none": """- Clue: no brackets. The other words of the sentence and the situation are the only clue.
+- Do not write brackets anywhere in the sentence.""",
+}
+
+
+def make_clue_rules_text(skill):
+    return GAP_CLUE_RULES[skills.get_gap_clue(skill["id"])]
+
+
+def make_all_clue_rules_text():
+    # For the prompt version: every block, in a fixed order, so changing one word of any block gives a new
+    # version, and the version stays the same for every skill.
+    clue_rules_texts = []
+
+    for gap_clue_type in skills.GAP_CLUE_TYPES:
+        clue_rules_texts.append(GAP_CLUE_RULES[gap_clue_type])
+
+    return "\n".join(clue_rules_texts)
 
 
 def make_situations_text(sub_topics):
@@ -153,11 +188,11 @@ def build_gap_exercise_batch_prompt(level, topic, sub_topics, skill, sentences_t
         exercise_count=len(sub_topics), level=level, topic=topic, skill_name=skill["name"],
         typical_mistake=skill["typical_mistake"], tag_when_line=make_tag_when_line(skill),
         situations=make_situations_text(sub_topics),
-        sentences_to_avoid=make_sentences_to_avoid_text(sentences_to_avoid),
+        sentences_to_avoid=make_sentences_to_avoid_text(sentences_to_avoid), clue_rules=make_clue_rules_text(skill),
     )
 
-    prompt_version = make_prompt_version(GAP_EXERCISE_BATCH_PROMPT_NAME,
-                                         GAP_EXERCISE_BATCH_TEMPLATE + TAG_WHEN_LINE_TEMPLATE)
+    prompt_version = make_prompt_version(GAP_EXERCISE_BATCH_PROMPT_NAME, GAP_EXERCISE_BATCH_TEMPLATE
+                                         + TAG_WHEN_LINE_TEMPLATE + make_all_clue_rules_text())
 
     return prompt_text, prompt_version
 

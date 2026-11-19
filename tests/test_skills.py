@@ -2,6 +2,8 @@
 
 import re
 
+import pytest
+
 from tutor import skills
 
 REQUIRED_FIELDS = ["id", "name", "level", "category", "active", "typical_mistake"]
@@ -303,3 +305,37 @@ def test_skills_as_prompt_text_has_one_line_per_skill_with_tag_when():
     assert prompt_lines[0].startswith("to_be | " + skill_without_tag_when["name"] + " | A2 | typical mistake: ")
     assert "tag when:" not in prompt_lines[0]
     assert prompt_lines[1].endswith(" | tag when: " + skill_with_tag_when["tag_when"])
+
+
+# ---------- the clue of a fill-the-gap exercise (Step 2, Part 3b) ----------
+
+def test_every_fill_the_gap_skill_has_a_clue_and_no_other_skill_has_one():
+    # A new fill-the-gap skill without a clue would crash the batch prompt: this test catches it first.
+    assert sorted(skills.GAP_CLUES) == sorted(skills.get_fill_the_gap_skill_ids())
+
+
+def test_every_clue_is_a_known_clue_type():
+    for skill_id, gap_clue in skills.GAP_CLUES.items():
+        assert gap_clue in skills.GAP_CLUE_TYPES, skill_id + " has an unknown clue type: " + gap_clue
+
+
+def test_there_is_no_choice_clue():
+    # Two options in brackets are a 50% guess (my rule, 2026-11-19).
+    assert "choice" not in skills.GAP_CLUE_TYPES
+
+
+def test_vocabulary_skills_use_a_portuguese_clue():
+    # The Portuguese word is exactly what leads to the typical mistake: perder → lose / miss, fazer → make / do.
+    for skill_id in ["word_choice", "false_friends", "make_do", "much_many", "common_collocations"]:
+        assert skills.get_gap_clue(skill_id) == "portuguese", skill_id
+
+
+def test_verb_tense_skills_use_a_base_word_clue():
+    for skill_id in ["present_simple", "past_simple", "present_perfect", "conditional_second", "passive_voice"]:
+        assert skills.get_gap_clue(skill_id) == "base_word", skill_id
+
+
+def test_get_gap_clue_refuses_a_skill_that_is_not_fill_the_gap():
+    for skill_id in ["capitalization", "writing_general"]:
+        with pytest.raises(ValueError, match="has no gap clue"):
+            skills.get_gap_clue(skill_id)

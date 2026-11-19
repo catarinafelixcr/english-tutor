@@ -189,6 +189,55 @@ SKILLS = [
 ]
 
 
+# ---------- the clue of a fill-the-gap exercise (Step 2, Part 3b) ----------
+
+# What the learner sees in brackets after the gap. Found 2026-11-19: with a verb in brackets for every skill,
+# 5 of 5 word_choice exercises tested tenses. The clue must fit the skill:
+# - base_word:  the base word to change: a verb (go), a noun (information) or an adjective (easy)
+# - words:      the words to use, in their base form: (he / ask). For word order and multi-word structures
+# - portuguese: the Portuguese word to say in English: (fazer), (perder). For vocabulary skills: the Portuguese
+#               word is exactly what leads to the typical mistake
+# - none:       no brackets; the sentence is the only clue
+# No "choice" clue like (make / do): two options in brackets are a 50% guess (my rule, 2026-11-19).
+GAP_CLUE_TYPES = ["base_word", "words", "portuguese", "none"]
+
+# Every fill-the-gap skill, and only those (a test checks it). A new skill must be added here too.
+GAP_CLUES = {
+    # verbs
+    "to_be": "none", "there_is_are": "none", "present_simple": "base_word", "present_continuous": "base_word",
+    "past_simple": "base_word", "irregular_verbs": "base_word", "past_continuous": "base_word",
+    "present_perfect": "base_word", "present_perfect_for_since": "base_word", "future_forms": "base_word",
+    "used_to": "base_word", "gerund_infinitive": "base_word", "past_perfect": "base_word",
+    "reported_speech": "portuguese",
+
+    # modals
+    "modals_base_verb": "words", "modals_obligation": "portuguese", "modals_deduction": "words",
+
+    # articles, nouns and quantifiers
+    "articles_a_an": "none", "articles_no_article": "none", "uncountable_nouns": "base_word",
+    "much_many": "portuguese",
+
+    # prepositions and pronouns
+    "prepositions_time": "none", "prepositions_place": "none", "dependent_prepositions": "none",
+    "subject_pronouns": "base_word", "possessive_pronouns": "none", "relative_pronouns": "none",
+
+    # comparatives and conditionals
+    "comparatives_superlatives": "base_word", "too_enough": "words",
+    "conditional_first": "base_word", "conditional_second": "base_word", "conditional_third": "base_word",
+    "wish": "base_word", "mixed_conditionals": "base_word",
+
+    # passive voice and word order
+    "passive_voice": "base_word", "have_something_done": "words", "passive_reporting": "base_word",
+    "questions_negatives": "words", "adjective_position": "words", "adverb_position": "words",
+    "indirect_questions": "words", "inversion": "words",
+
+    # phrasal verbs, collocations, vocabulary and spelling
+    "phrasal_verbs_common": "portuguese", "phrasal_verbs_separable": "words",
+    "make_do": "portuguese", "common_collocations": "portuguese",
+    "word_choice": "portuguese", "false_friends": "portuguese", "spelling": "portuguese",
+}
+
+
 def get_skill(skill_id):
     for skill in SKILLS:
         if skill["id"] == skill_id:
@@ -242,6 +291,14 @@ def get_fill_the_gap_skill_ids():
         fill_the_gap_skill_ids.append(skill["id"])
 
     return fill_the_gap_skill_ids
+
+
+def get_gap_clue(skill_id):
+    # The clue type of a fill-the-gap skill: "base_word", "words", "portuguese" or "none".
+    if skill_id not in GAP_CLUES:
+        raise ValueError("this skill has no gap clue (not a fill-the-gap skill): " + skill_id)
+
+    return GAP_CLUES[skill_id]
 
 
 def get_fill_the_gap_skills_up_to_level(level):
