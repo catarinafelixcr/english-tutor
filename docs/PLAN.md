@@ -28,7 +28,7 @@ The app teaches well only if it follows these seven rules, so every step below i
 2. **Every answer is saved.** Each attempt stores the skill, the section, your answer, the verdict, the type of error and the date. This table is the heart of the app.
 3. **Mastery score per skill.** Accuracy over your last 10 attempts on that skill. Below 60% with at least 5 attempts means weak. Above 85% means strong.
 4. **"You must study X."** When a skill is weak, Home shows it first, Learn opens a lesson about it, and Practice gives you more sentences on it.
-5. **You type, you do not click.** Typing the answer from memory teaches more than choosing from options, so there is no multiple choice.
+5. **You type first.** Typing the answer from memory teaches more than choosing from options, so typing is the main way to answer. Options (multiple choice) and word tiles appear only as help steps, after I tried, and an answer found with them counts less for mastery (changed 2026-11-19, help ladder in Step 2 Part 3c).
 6. **Mistakes come back.** A wrong sentence returns after 1, 3, 7, 14 and 30 days. A second mistake sends it back to day 1.
 7. **The AI grader is tested.** An AI can grade wrongly. You keep a file of 50 answers that you graded by hand and measure how often the AI agrees. Aim for 90% or more before you trust it.
 
@@ -226,9 +226,9 @@ This is the first version you can really study with, and it copies the page I bu
 
 **Two more exercise types (same page, same grading code)**
 
-- [ ] Fix the error: the AI writes a sentence with one mistake, and you rewrite it correctly.
+- [ ] Fix the error (find the wrong word and fix it): the AI writes a sentence with one mistake, and you rewrite it correctly.
 - [ ] `capitalization` is available in Fix the error (for example "on monday i speak english"). For this skill only, the code check compares capital letters exactly.
-- [ ] Word order: the AI writes the correct sentence, the CODE shuffles its words (never in an accepted order), and you type the sentence.
+- [ ] Word order: the AI writes the correct sentence, the CODE shuffles its words (never in an accepted order), and you type the sentence. Word tiles (build the sentence by clicking the words) only as a help step, like the options (2026-11-19).
 - [ ] Word order skills: the `word_order` category plus `too_enough`, `phrasal_verbs_separable` and `have_something_done`, in one helper `get_word_order_skill_ids()` with a test. When a sentence has two correct orders, both are saved (expected answer + accepted answers).
 
 **Test the grader**
@@ -299,6 +299,8 @@ This step adds the part you asked for: the app tells you what to study and teach
 - [ ] Save one row in `lesson_events` each time I open a lesson.
 - [ ] Under the lesson, give 5 fill-the-gap sentences only on that skill. Use the code from Step 2.
 - [ ] At the end, show the score and the new status of the skill.
+- [ ] Match each sentence to its rule (2026-11-19): a few sentences and a few rules; I connect each sentence to the rule it uses.
+- [ ] Sort sentences into two columns (2026-11-19), for skills that look alike (present perfect / past simple, make / do, will / going to): each sentence goes in the column of the form it needs.
 - [ ] Add a selector for the explanation language (Portuguese or English).
 
 **Home page**
@@ -498,6 +500,8 @@ Four things can make the app teach badly, and each has a fix in the plan.
 - [ ] Replace the box system with a model that predicts when you will forget each skill, trained on your own attempts.
 - [ ] Pronunciation practice for difficult sounds, with minimal pairs (ship and sheep).
 - [ ] Exam mode for IELTS or TOEFL writing tasks.
+- [ ] "Is this sentence correct?" (2026-11-19): I say yes or no, and fix it when it is wrong.
+- [ ] "Rewrite this sentence in another tense" (2026-11-19): for example, from present simple to past simple.
 
 ## Sources
 
