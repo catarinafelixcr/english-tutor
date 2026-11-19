@@ -13,10 +13,13 @@ from tutor.schemas import (
     split_gap_exercise_items,
 )
 
+TRAP_WHY = "With she, the verb needs -s: she works."
+
 
 def make_gap_exercise_values():
     return {"sentence": "She ___ (work) in a bank.", "signal": "in a bank", "expected_answer": "works",
-            "accepted_answers": [], "skill_id": "present_simple", "hint": "he / she / it", "level": "A2"}
+            "accepted_answers": [], "trap": "work", "trap_why": TRAP_WHY, "skill_id": "present_simple",
+            "hint": "he / she / it", "level": "A2"}
 
 
 def test_a_good_gap_exercise_is_accepted():
@@ -142,7 +145,7 @@ def test_an_unknown_level_is_refused():
 
 def make_draft_values():
     return {"sentence": "She ___ (work) in a bank.", "signal": "in a bank", "expected_answer": "works",
-            "accepted_answers": [], "hint": "he / she / it"}
+            "accepted_answers": [], "trap": "work", "trap_why": TRAP_WHY, "hint": "he / she / it"}
 
 
 def test_a_good_draft_is_accepted():
@@ -202,7 +205,8 @@ def test_the_used_sentences_are_not_sent_to_the_ai():
 
     schema_fields = draft_schema.model_json_schema()["properties"]
 
-    assert list(schema_fields) == ["sentence", "signal", "expected_answer", "accepted_answers", "hint"]
+    assert list(schema_fields) == ["sentence", "signal", "expected_answer", "accepted_answers", "trap", "trap_why",
+                                   "hint"]
 
 
 def test_the_plain_draft_has_no_used_sentences():
@@ -217,7 +221,7 @@ def test_the_plain_draft_has_no_used_sentences():
 
 def make_item_values(sentence, signal, expected_answer, hint):
     return {"sentence": sentence, "signal": signal, "expected_answer": expected_answer, "accepted_answers": [],
-            "hint": hint}
+            "trap": "a wrong answer", "trap_why": TRAP_WHY, "hint": hint}
 
 
 def make_items(item_values_list):
@@ -300,14 +304,15 @@ def test_the_batch_schema_sent_to_the_ai_has_only_the_exercises_list():
     item_fields = json_schema["$defs"]["GapExerciseItem"]["properties"]
 
     assert list(json_schema["properties"]) == ["exercises"]
-    assert list(item_fields) == ["sentence", "signal", "expected_answer", "accepted_answers", "hint"]
+    assert list(item_fields) == ["sentence", "signal", "expected_answer", "accepted_answers", "trap", "trap_why",
+                                 "hint"]
 
 
 # ---------- the clue after the gap must match the skill (Step 2, Part 3b) ----------
 
 def make_clue_draft_values(sentence, signal, expected_answer):
     return {"sentence": sentence, "signal": signal, "expected_answer": expected_answer, "accepted_answers": [],
-            "hint": "a short clue"}
+            "trap": "a wrong answer", "trap_why": TRAP_WHY, "hint": "a short clue"}
 
 
 @pytest.mark.parametrize("gap_clue, sentence, signal, expected_answer", [
@@ -375,6 +380,70 @@ def test_the_clue_type_is_not_sent_to_the_ai():
     item_fields = batch_schema.model_json_schema()["$defs"]["GapExerciseItem"]["properties"]
 
     assert "gap_clue" not in item_fields
+
+
+@pytest.mark.parametrize("sentence, signal, expected_answer, accepted_answers", [
+    ("I cleaned the dataset ___ (last week).", "cleaned", "last week", []),
+    ("___ (life) is hard for many families.", "many families", "Life", []),
+    ("My sister is ___ (engineer) at a big company.", "big company", "an engineer", []),
+    ("I am waiting ___ (the bus stop) near the office.", "near the office", "at the bus stop", ["by the bus stop"]),
+])
+def test_an_add_words_answer_that_ends_with_the_clue_is_accepted(sentence, signal, expected_answer,
+                                                                 accepted_answers):
+    # Capital letters do not matter: (life) → "Life".
+    draft_schema = make_gap_exercise_draft_schema([], "add_words")
+    draft_values = make_clue_draft_values(sentence, signal, expected_answer)
+    draft_values["accepted_answers"] = accepted_answers
+
+    draft = draft_schema(**draft_values)
+
+    assert draft.expected_answer == expected_answer
+
+
+@pytest.mark.parametrize("expected_answer, accepted_answers", [
+    ("communication", []),             # the demo bug: the whole noun in the gap, not the clue
+    ("in last weekend", []),           # "weekend" is not "week": whole words only
+    ("last week", ["the week before"]),
+])
+def test_an_add_words_answer_that_does_not_end_with_the_clue_is_refused(expected_answer, accepted_answers):
+    draft_schema = make_gap_exercise_draft_schema([], "add_words")
+    draft_values = make_clue_draft_values("I cleaned the dataset ___ (last week) with Ana.", "with Ana",
+                                          expected_answer)
+    draft_values["accepted_answers"] = accepted_answers
+
+    with pytest.raises(ValidationError, match="does not end with the words in brackets"):
+        draft_schema(**draft_values)
+
+
+# ---------- the trap: the likely wrong answer (Step 2, Part 3b) ----------
+
+@pytest.mark.parametrize("field_name", ["trap", "trap_why"])
+def test_an_empty_trap_field_is_refused(field_name):
+    draft_values = make_draft_values()
+    draft_values[field_name] = "  "
+
+    with pytest.raises(ValidationError, match="the " + field_name + " is empty"):
+        GapExerciseDraft(**draft_values)
+
+
+@pytest.mark.parametrize("trap, accepted_answers", [("Works", []), ("does work", ["does work"])])
+def test_a_trap_that_is_a_correct_answer_is_refused(trap, accepted_answers):
+    # The code grades the trap as wrong, so it can never be correct.
+    draft_values = make_draft_values()
+    draft_values["trap"] = trap
+    draft_values["accepted_answers"] = accepted_answers
+
+    with pytest.raises(ValidationError, match="the trap is a correct answer"):
+        GapExerciseDraft(**draft_values)
+
+
+def test_the_trap_fields_lose_their_spaces():
+    draft_values = make_draft_values()
+    draft_values["trap"] = "  work "
+
+    draft = GapExerciseDraft(**draft_values)
+
+    assert draft.trap == "work"
 
 
 def test_a_batch_drops_the_items_with_the_wrong_clue_and_keeps_the_others():

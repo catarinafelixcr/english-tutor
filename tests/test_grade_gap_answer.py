@@ -83,6 +83,73 @@ def partial_grade(mistake_text):
             "memory_tip": "write → wrote → written"}
 
 
+# ---------- in code, no AI: the trap (Step 2, Part 3b) ----------
+
+MISS_SENTENCE = "Hurry up, or we will ___ (perder) the last train."
+MISS_TRAP_WHY = "You lose an object, but you miss a bus or a train that leaves without you: miss the train."
+
+
+def save_exercise_with_trap(database_path):
+    exercise = Exercise(section="practice", exercise_type="gap", skill_id="word_choice", level="B1", topic="travel",
+                        prompt_text=MISS_SENTENCE, expected_answer="miss", trap="lose", trap_why=MISS_TRAP_WHY)
+    exercise_id = db.save_exercise(exercise, database_path)
+
+    return exercise_id, exercise
+
+
+@pytest.mark.parametrize("your_answer", ["lose", " Lose. "])
+def test_the_trap_is_graded_wrong_by_code_with_its_reason(database_path, monkeypatch, your_answer):
+    fake_ask = install_fake_ask(monkeypatch, [])
+    exercise_id, exercise = save_exercise_with_trap(database_path)
+
+    result = grading.grade_gap_answer(exercise_id, exercise, your_answer, False, 6.0, "English", database_path)
+    saved_attempts = db.get_attempts(database_path=database_path)
+
+    assert fake_ask.prompts_received == []
+    assert result.state == "wrong"
+    assert result.graded_by == "code"
+    assert result.why_wrong == MISS_TRAP_WHY
+    assert result.rule == ""
+    assert result.correction == "miss"
+    assert result.corrected_sentence == "Hurry up, or we will miss the last train."
+    assert len(saved_attempts) == 1
+    assert saved_attempts.loc[0, "verdict"] == "wrong"
+    assert saved_attempts.loc[0, "graded_by"] == "code"
+    assert saved_attempts.loc[0, "error_type"] == "vocabulary"
+    assert saved_attempts.loc[0, "mistake_text"] == your_answer.strip().rstrip(".")
+    assert saved_attempts.loc[0, "correction"] == "miss"
+    assert MISS_TRAP_WHY in saved_attempts.loc[0, "explanation"]
+
+
+def test_an_answer_that_is_not_the_trap_still_goes_to_the_ai(database_path, monkeypatch):
+    wrong_grade = {"verdict": "wrong", "error_type": "vocabulary", "mistake_text": "loose", "correction": "miss",
+                   "why_wrong": "You wrote 'loose': it means not tight.", "rule": "miss a train",
+                   "corrected_sentence": "Hurry up, or we will miss the last train."}
+    fake_ask = install_fake_ask(monkeypatch, [wrong_grade])
+    exercise_id, exercise = save_exercise_with_trap(database_path)
+
+    result = grading.grade_gap_answer(exercise_id, exercise, "loose", False, 6.0, "English", database_path)
+
+    assert len(fake_ask.prompts_received) == 1
+    assert result.graded_by == "ai"
+
+
+def test_an_old_exercise_without_a_trap_goes_to_the_ai(database_path, monkeypatch):
+    fake_ask = install_fake_ask(monkeypatch, [partial_grade("has write")])
+    exercise_id, exercise = save_exercise(database_path, "present_perfect", WRITE_SENTENCE, "written")
+
+    grading.grade_gap_answer(exercise_id, exercise, "write", False, 8.0, "English", database_path)
+
+    assert len(fake_ask.prompts_received) == 1
+
+
+@pytest.mark.parametrize("skill_id, error_type", [("word_choice", "vocabulary"), ("make_do", "vocabulary"),
+                                                  ("adverb_position", "word_order"), ("spelling", "spelling"),
+                                                  ("present_simple", "grammar")])
+def test_the_trap_error_type_comes_from_the_skill_category(skill_id, error_type):
+    assert grading.choose_trap_error_type(skill_id) == error_type
+
+
 # ---------- in code, no AI ----------
 
 def test_an_exact_match_is_graded_by_code_with_no_ai_call(database_path, monkeypatch):

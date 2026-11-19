@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from tutor import db, llm, prompts
+from tutor import db, llm, prompts, skills
 from tutor.schemas import Attempt, make_gap_grade_schema
 
 # One JSON line per grading problem: bad quotes, the fallback, a corrected sentence that does not match.
@@ -396,6 +396,50 @@ def grade_capitalization_slip(submission_id, exercise_id, exercise, your_answer,
                      detected_mistake_text=my_answer, detected_correction=matched_answer, reminder=reminder)
 
 
+# ---------- grading in code: the trap (Step 2, Part 3b) ----------
+
+# The error type of a trap answer, from the category of the tested skill. Every other category is "grammar".
+TRAP_ERROR_TYPES = {"spelling": "spelling", "word_order": "word_order", "vocabulary": "vocabulary",
+                    "collocations": "vocabulary", "phrasal_verbs": "vocabulary"}
+
+
+def is_the_trap(your_answer, exercise):
+    # True if my answer is the exercise's trap (capital letters do not matter). Old exercises have no trap.
+    if not exercise.trap or not exercise.trap_why:
+        return False
+
+    return clean_answer(your_answer).lower() == clean_answer(exercise.trap).lower()
+
+
+def choose_trap_error_type(skill_id):
+    category = skills.get_skill(skill_id)["category"]
+
+    if category in TRAP_ERROR_TYPES:
+        return TRAP_ERROR_TYPES[category]
+
+    return "grammar"
+
+
+def grade_trap_answer(submission_id, exercise_id, exercise, your_answer, hint_used, seconds_taken, database_path):
+    # My answer is the trap the exercise was built around: wrong, explained with trap_why, no AI request.
+    my_answer = clean_answer(your_answer)
+    explanation = "You wrote: " + my_answer + "\nWhy: " + exercise.trap_why
+
+    attempt = Attempt(submission_id=submission_id, exercise_id=exercise_id, section=exercise.section,
+                      skill_id=exercise.skill_id, source="targeted", your_answer=your_answer, verdict="wrong",
+                      error_type=choose_trap_error_type(exercise.skill_id), explanation=explanation,
+                      mistake_text=my_answer, correction=exercise.expected_answer, hint_used=hint_used,
+                      seconds_taken=seconds_taken, graded_by="code")
+    db.save_attempts([attempt], database_path)
+
+    corrected_sentence = build_sentence_with_answer(exercise.prompt_text, exercise.expected_answer)
+
+    # trap_why already holds the reason AND the rule, so the separate rule line stays empty.
+    return GapResult(submission_id=submission_id, state="wrong", graded_by="code", your_answer=your_answer,
+                     corrected_sentence=corrected_sentence, mistake_text=my_answer,
+                     correction=exercise.expected_answer, why_wrong=exercise.trap_why)
+
+
 # ---------- grading with the AI ----------
 
 def get_bad_quote_texts(grade, bad_quote_names):
@@ -545,6 +589,10 @@ def grade_gap_answer(exercise_id, exercise, your_answer, hint_used, seconds_take
     if result_kind == CAPITALIZATION_SLIP:
         return grade_capitalization_slip(submission_id, exercise_id, exercise, your_answer, matched_answer,
                                          hint_used, seconds_taken, database_path)
+
+    if is_the_trap(your_answer, exercise):
+        return grade_trap_answer(submission_id, exercise_id, exercise, your_answer, hint_used, seconds_taken,
+                                 database_path)
 
     grade, model_returned, prompt_version = ask_ai_for_grade(exercise_id, exercise, your_answer,
                                                              explanation_language)

@@ -8,6 +8,8 @@ from pydantic import ValidationError
 from tutor import db, exercises, llm, skills
 from tutor.schemas import Exercise
 
+TO_BE_TRAP_WHY = "Feelings use be in English, not have: I am tired."
+
 
 @pytest.fixture
 def database_path(tmp_path):
@@ -43,7 +45,8 @@ def first_word(sentence):
 
 def install_fake_ask(monkeypatch, sentence):
     planned_answer = {"sentence": sentence, "signal": first_word(sentence), "expected_answer": "am",
-                      "accepted_answers": ["'m"], "hint": "the verb for how you feel"}
+                      "accepted_answers": ["'m"], "trap": "have", "trap_why": TO_BE_TRAP_WHY,
+                      "hint": "the verb for how you feel"}
     fake_ask = FakeAsk(planned_answer)
     monkeypatch.setattr(llm, "ask", fake_ask.ask)
 
@@ -169,7 +172,7 @@ def dropped_log_path(tmp_path, monkeypatch):
 
 def make_batch_item(sentence):
     return {"sentence": sentence, "signal": first_word(sentence), "expected_answer": "am", "accepted_answers": ["'m"],
-            "hint": "how you feel"}
+            "trap": "have", "trap_why": TO_BE_TRAP_WHY, "hint": "how you feel"}
 
 
 FIVE_GOOD_SENTENCES = ["I ___ tired after the flight.", "I ___ at the hotel now.", "I ___ ready to check in.",
@@ -280,6 +283,84 @@ def test_a_batch_with_no_valid_item_saves_nothing(database_path, monkeypatch, dr
         exercises.create_gap_exercises("to_be", "A2", "travel", database_path)
 
     assert db.get_exercise_sentences("to_be", database_path) == []
+
+
+def test_create_gap_exercises_saves_the_trap_and_its_reason(database_path, monkeypatch, dropped_log_path):
+    install_fake_batch_ask(monkeypatch, FIVE_GOOD_SENTENCES)
+
+    exercises.create_gap_exercises("to_be", "A2", "travel", database_path)
+    # A list of (exercise id, Exercise): [0] is the first exercise, [1] its Exercise model.
+    saved_exercise = db.get_unanswered_exercises("gap", "A2", "to_be", None, database_path)[0][1]
+
+    assert saved_exercise.trap == "have"
+    assert saved_exercise.trap_why == TO_BE_TRAP_WHY
+
+
+# ---------- known Portuguese → English traps (word_choice, false_friends) ----------
+
+def make_word_choice_item(word_trap):
+    # A good item for one trap pair: the Portuguese word is in the brackets. The answer at the end makes each
+    # sentence different ("esperar" is in the list twice, and two equal sentences in a batch are dropped).
+    sentence = "Every day ___ (" + word_trap["portuguese"] + ") at the office: " + word_trap["answer"] + "."
+    return {"sentence": sentence, "signal": "Every day", "expected_answer": word_trap["answer"],
+            "accepted_answers": [], "trap": word_trap["trap"], "trap_why": "Not the same meaning in English.",
+            "hint": "a normal day at work"}
+
+
+def install_fake_word_choice_ask(monkeypatch, chosen_traps):
+    # The code's random choice of pairs is replaced, so the test knows which pair each position gets.
+    monkeypatch.setattr(exercises, "choose_word_traps", lambda skill_id: chosen_traps)
+    items = []
+
+    for word_trap in chosen_traps:
+        items.append(make_word_choice_item(word_trap))
+
+    fake_ask = FakeAsk({"exercises": items})
+    monkeypatch.setattr(llm, "ask", fake_ask.ask)
+
+    return fake_ask, items
+
+
+def test_choose_word_traps_gives_one_different_pair_per_exercise():
+    chosen_traps = exercises.choose_word_traps("word_choice")
+
+    assert len(chosen_traps) == exercises.BATCH_SIZE
+
+    for word_trap in chosen_traps:
+        assert word_trap in skills.WORD_TRAPS["word_choice"]
+        assert chosen_traps.count(word_trap) == 1
+
+
+def test_choose_word_traps_is_empty_for_a_skill_with_no_known_traps():
+    assert exercises.choose_word_traps("present_simple") == []
+
+
+def test_the_word_choice_prompt_gives_one_pair_per_situation(database_path, monkeypatch, dropped_log_path):
+    chosen_traps = skills.WORD_TRAPS["word_choice"][:exercises.BATCH_SIZE]
+    fake_ask, items = install_fake_word_choice_ask(monkeypatch, chosen_traps)
+
+    saved_exercises = exercises.create_gap_exercises("word_choice", "B1", "travel", database_path)
+    prompt_text = fake_ask.prompts_received[0]
+
+    assert len(saved_exercises) == exercises.BATCH_SIZE
+    assert "| Portuguese word: perder | answer: miss | trap: lose |" in prompt_text
+    assert "| Portuguese word: lembrar | answer: remind | trap: remember |" in prompt_text
+
+
+def test_an_item_without_the_portuguese_word_of_its_position_is_dropped(database_path, monkeypatch,
+                                                                        dropped_log_path):
+    chosen_traps = skills.WORD_TRAPS["word_choice"][:exercises.BATCH_SIZE]
+    fake_ask, items = install_fake_word_choice_ask(monkeypatch, chosen_traps)
+
+    # Position 1 should use "lembrar"; the AI used another Portuguese word.
+    items[1]["sentence"] = "Every day ___ (recordar) at the office: remind."
+
+    saved_exercises = exercises.create_gap_exercises("word_choice", "B1", "travel", database_path)
+    log_lines = read_log_lines(dropped_log_path)
+
+    assert len(saved_exercises) == exercises.BATCH_SIZE - 1
+    assert log_lines[0]["position"] == 1
+    assert "not in the brackets: lembrar" in log_lines[0]["reason"]
 
 
 def test_create_gap_exercises_checks_the_clue_of_the_skill(database_path, monkeypatch, dropped_log_path):

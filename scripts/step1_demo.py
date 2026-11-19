@@ -38,6 +38,8 @@ def print_exercise(exercise, exercise_id):
     print("  Sentence        :", exercise.prompt_text)
     print("  Expected answer :", exercise.expected_answer)
     print("  Accepted answers:", exercise.accepted_answers)
+    print("  Trap            :", exercise.trap)
+    print("  Why it is wrong :", exercise.trap_why)
     print("  Hint            :", exercise.hint)
     print("  Model returned  :", exercise.model)
     print("  Prompt version  :", exercise.prompt_version)

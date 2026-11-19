@@ -37,7 +37,9 @@ Done on: 2026-11-16
 - [x] First thing next session: run `python -m scripts.step2_batch_demo present_simple` (signal + default effort, never tested for real: 2 tries today, both 503). Done: 0 of 5 weak, first try
 - [x] Part 2: check answers (code first, then the AI), `GapGrade`, save attempts, exercise stock (never wait for a live request). Done 2026-11-16: 327 tests, grade demo 6/6 graded with the real AI
 - [x] Part 3: the Practice page (fill the gap), with hint, skip, report a problem, no double save. Done 2026-11-16: 356 tests (11 page tests with AppTest), tested in the browser
-- [ ] Part 4: gold file (50 rows), `run_eval.py`, hand review of 20 exercises
+- [ ] Part 3b: clue type per skill, `add_words`, trap + trap_why (database v3), known Portuguese traps, demo per clue type, level before skill, instruction line
+- [ ] Part 3c: rule cards, help ladder (database v4)
+- [ ] Part 4: gold file (50 rows), `run_eval.py`, hand review of 20 exercises (4a done 2026-11-19: gold file committed, my verdicts in progress)
 - [ ] Part 5: Fix the error and Word order
 
 Done when: you can do 20 sentences without an app error, every attempt is in the database with a skill tag, and the grader agrees with you on 45 of the 50 gold rows.

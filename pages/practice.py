@@ -331,7 +331,10 @@ def make_result_message(result):
     if result.state in ["partial", "wrong"]:
         message_lines.append("You wrote: **" + escape_markdown(result.mistake_text) + "**")
         message_lines.append("Why: " + escape_markdown(result.why_wrong))
-        message_lines.append("Rule: " + escape_markdown(result.rule))
+
+        # A trap answer (graded in code) has the rule inside "Why", so its rule line is empty.
+        if result.rule != "":
+            message_lines.append("Rule: " + escape_markdown(result.rule))
 
     if result.note != "":
         message_lines.append(escape_markdown(result.note))

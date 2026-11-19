@@ -49,6 +49,8 @@ Rules:
   the sentence. Not the gap, not the verb in brackets.
 - expected_answer: the word or words that fill the gap.
 - accepted_answers: other answers a native speaker would also accept. Use an empty list if there are none.
+- trap: the wrong answer a Portuguese speaker would most likely write in this gap.
+- trap_why: one or two short sentences: why the trap is wrong here, then the rule with the correct form.
 - hint: a short clue that helps but does not give the answer. Never write the expected answer or an
   accepted answer in the hint.
 """
@@ -130,11 +132,17 @@ Rules for every exercise:
 - expected_answer: the word or words that fill the gap.
 - accepted_answers: only other answers that are also natural in this sentence AND test the same thing as the
   expected answer (for example a short form). Use an empty list if there are none.
+- trap: the wrong answer a Portuguese speaker would most likely write in this gap: the typical mistake above,
+  in this sentence. It must be clearly WRONG for the tested skill: not half right, not a spelling slip, and not
+  a mistake of another skill. Build the sentence so the trap is wrong and only the expected answer fits.
+- trap_why: for a learner who wrote the trap. One or two short sentences in simple English: why the trap is
+  wrong in this sentence, then the rule with the correct form. Do not repeat the whole sentence.
 - hint: a short clue about the MEANING or the situation of the sentence, not about grammar. Do not name the
   rule, the tense or the grammar word. Never write the expected answer or an accepted answer in the hint.
 
 Before you answer, read each sentence again with the gap filled. If a different answer would also be natural,
-the sentence is ambiguous: rewrite it so only the tested answer fits.
+the sentence is ambiguous: rewrite it so only the tested answer fits. Then read it with the trap: the trap
+must be clearly wrong.
 """
 
 # The clue after the gap depends on the skill (skills.GAP_CLUES). Only the block of the skill's clue type goes
@@ -150,11 +158,27 @@ GAP_CLUE_RULES = {
     "portuguese": """- Clue: right after the gap, write in round brackets the Portuguese word or short expression
   (European Portuguese, from Portugal) that the learner must say in English. The gap tests which English word
   is right for it.
-- Choose a Portuguese word that often leads Portuguese speakers to the typical mistake above.
+- Choose a Portuguese word whose FIRST English translation, the one a Portuguese speaker thinks of first, is
+  wrong in this sentence. That wrong translation is the trap. A Portuguese word with one obvious translation
+  does not test this skill.
+- When a situation below gives a Portuguese word, an answer and a trap, use exactly them: that Portuguese word
+  in the brackets, that answer (in the form the sentence needs), and that trap.
 - Never write the English answer, or a part of it, in the brackets.""",
+    "add_words": """- Clue: right after the gap, write in round brackets the noun or the time words the learner must
+  use, exactly as they appear at the end of the answer. The learner writes them with the word they need before them,
+  or with nothing before them when no word is needed.
+- The expected answer and every accepted answer end with the words in brackets.
+- Mix the exercises: some need a word before the brackets and, when the skill allows it, some need no word.""",
     "none": """- Clue: no brackets. The other words of the sentence and the situation are the only clue.
 - Do not write brackets anywhere in the sentence.""",
 }
+
+# Added to a situation line when the skill has known traps (skills.WORD_TRAPS): one pair per exercise.
+WORD_TRAP_LINE_TEMPLATE = (" | Portuguese word: {portuguese} | answer: {answer} | trap: {trap}"
+                           " | the answer is right for: {used_for}")
+
+# Added after it when the pair has other right answers (costume → habit, also custom).
+ALSO_RIGHT_TEMPLATE = " | also right, put in accepted_answers: {also_right}"
 
 
 def make_clue_rules_text(skill):
@@ -172,27 +196,45 @@ def make_all_clue_rules_text():
     return "\n".join(clue_rules_texts)
 
 
-def make_situations_text(sub_topics):
+def make_situations_text(sub_topics, word_traps):
     # "1. a delayed flight\n2. checking in at a hotel\n..."
+    # word_traps: one trap pair per sub-topic (same order), or an empty list when the skill has none.
     situation_lines = []
 
     for position, sub_topic in enumerate(sub_topics):
-        situation_lines.append(str(position + 1) + ". " + sub_topic)
+        situation_line = str(position + 1) + ". " + sub_topic
+
+        if len(word_traps) > 0:
+            word_trap = word_traps[position]
+            situation_line = situation_line + WORD_TRAP_LINE_TEMPLATE.format(
+                portuguese=word_trap["portuguese"], answer=word_trap["answer"], trap=word_trap["trap"],
+                used_for=word_trap["used_for"])
+
+            if "also_right" in word_trap:
+                situation_line = situation_line + ALSO_RIGHT_TEMPLATE.format(
+                    also_right=", ".join(word_trap["also_right"]))
+
+        situation_lines.append(situation_line)
 
     return "\n".join(situation_lines)
 
 
-def build_gap_exercise_batch_prompt(level, topic, sub_topics, skill, sentences_to_avoid):
+def build_gap_exercise_batch_prompt(level, topic, sub_topics, skill, sentences_to_avoid, word_traps):
     # One exercise per sub-topic. Returns the final prompt text and its version.
+    # word_traps: one known trap pair per sub-topic (word_choice, false_friends), or an empty list.
+    if len(word_traps) > 0 and len(word_traps) != len(sub_topics):
+        raise ValueError("word_traps needs one pair per sub-topic")
+
     prompt_text = GAP_EXERCISE_BATCH_TEMPLATE.format(
         exercise_count=len(sub_topics), level=level, topic=topic, skill_name=skill["name"],
         typical_mistake=skill["typical_mistake"], tag_when_line=make_tag_when_line(skill),
-        situations=make_situations_text(sub_topics),
+        situations=make_situations_text(sub_topics, word_traps),
         sentences_to_avoid=make_sentences_to_avoid_text(sentences_to_avoid), clue_rules=make_clue_rules_text(skill),
     )
 
     prompt_version = make_prompt_version(GAP_EXERCISE_BATCH_PROMPT_NAME, GAP_EXERCISE_BATCH_TEMPLATE
-                                         + TAG_WHEN_LINE_TEMPLATE + make_all_clue_rules_text())
+                                         + TAG_WHEN_LINE_TEMPLATE + make_all_clue_rules_text()
+                                         + WORD_TRAP_LINE_TEMPLATE + ALSO_RIGHT_TEMPLATE)
 
     return prompt_text, prompt_version
 

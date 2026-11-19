@@ -335,6 +335,62 @@ def test_verb_tense_skills_use_a_base_word_clue():
         assert skills.get_gap_clue(skill_id) == "base_word", skill_id
 
 
+def test_articles_and_prepositions_of_time_and_place_use_the_add_words_clue():
+    # Their right answer is often "no word" (last week, life is hard): the clue lets the gap say it.
+    for skill_id in ["articles_a_an", "articles_no_article", "prepositions_time", "prepositions_place"]:
+        assert skills.get_gap_clue(skill_id) == "add_words", skill_id
+
+
+# ---------- known Portuguese → English traps ----------
+
+def test_word_traps_are_only_for_fill_the_gap_skills_with_a_portuguese_clue():
+    for skill_id in skills.WORD_TRAPS:
+        assert skills.get_gap_clue(skill_id) == "portuguese", skill_id
+
+
+def test_every_word_trap_has_four_filled_fields_and_maybe_also_right():
+    for skill_id, word_traps in skills.WORD_TRAPS.items():
+        for word_trap in word_traps:
+            field_names = sorted(word_trap)
+
+            if "also_right" in field_names:
+                field_names.remove("also_right")
+                assert len(word_trap["also_right"]) > 0, word_trap["portuguese"]
+                assert word_trap["trap"] not in word_trap["also_right"], word_trap["portuguese"]
+
+            assert field_names == ["answer", "portuguese", "trap", "used_for"], skill_id
+
+            for field_name in ["answer", "portuguese", "trap", "used_for"]:
+                assert word_trap[field_name].strip() != "", skill_id + ": " + str(word_trap)
+
+
+def test_a_word_trap_is_never_its_own_answer():
+    for skill_id, word_traps in skills.WORD_TRAPS.items():
+        for word_trap in word_traps:
+            assert word_trap["trap"].lower() != word_trap["answer"].lower(), word_trap["portuguese"]
+
+
+def test_no_word_trap_pair_is_in_the_list_twice():
+    for skill_id, word_traps in skills.WORD_TRAPS.items():
+        seen_pairs = []
+
+        for word_trap in word_traps:
+            pair = (word_trap["portuguese"], word_trap["answer"])
+            assert pair not in seen_pairs, skill_id + ": " + str(pair)
+            seen_pairs.append(pair)
+
+
+def test_every_skill_with_word_traps_has_enough_for_one_batch():
+    # A batch of 5 gets 5 DIFFERENT pairs (exercises.BATCH_SIZE; skills.py cannot import exercises.py).
+    for skill_id, word_traps in skills.WORD_TRAPS.items():
+        assert len(word_traps) >= 5, skill_id
+
+
+def test_get_word_traps_is_empty_for_a_skill_with_no_list():
+    assert skills.get_word_traps("present_simple") == []
+    assert skills.get_word_traps("word_choice") == skills.WORD_TRAPS["word_choice"]
+
+
 def test_get_gap_clue_refuses_a_skill_that_is_not_fill_the_gap():
     for skill_id in ["capitalization", "writing_general"]:
         with pytest.raises(ValueError, match="has no gap clue"):

@@ -182,7 +182,8 @@ def test_init_db_upgrades_a_version_1_database_and_keeps_its_rows(version_1_data
     with db.connect(version_1_database_path) as connection:
         exercise_row = connection.execute("SELECT exercise_type, prompt_text FROM exercises").fetchone()
 
-    assert read_version(version_1_database_path) == 2
+    # Migrated step by step: 1 → 2 → 3 (the latest).
+    assert read_version(version_1_database_path) == db.SCHEMA_VERSION
     assert exercise_row == ("gap", "I ___ tired after the flight.")
     assert count_rows(version_1_database_path, "exercises") == 1
     assert count_rows(version_1_database_path, "skills") == len(skills.SKILLS)
@@ -193,8 +194,9 @@ def test_init_db_makes_a_backup_of_the_old_version_before_migrating(version_1_da
 
     backups = list_backups(version_1_database_path)
 
+    # One backup before ALL the steps, named after the version the code brings it to.
     assert len(backups) == 1
-    assert backups[0].name.startswith("old_tutor_before_v2_")
+    assert backups[0].name.startswith("old_tutor_before_v" + str(db.SCHEMA_VERSION) + "_")
     # The backup is the database as it was BEFORE: still version 1, and its exercise is still there.
     assert read_version(backups[0]) == 1
     assert count_rows(backups[0], "exercises") == 1
@@ -209,7 +211,7 @@ def test_init_db_twice_on_an_old_database_makes_only_one_backup(version_1_databa
     db.init_db(version_1_database_path)
 
     assert len(list_backups(version_1_database_path)) == 1
-    assert read_version(version_1_database_path) == 2
+    assert read_version(version_1_database_path) == db.SCHEMA_VERSION
 
 
 def test_a_failing_migration_changes_nothing(version_1_database_path, monkeypatch):
@@ -231,6 +233,74 @@ def test_a_failing_migration_changes_nothing(version_1_database_path, monkeypatc
     assert "exercise_type" not in column_names
     assert read_version(version_1_database_path) == 1
     assert len(list_backups(version_1_database_path)) == 1
+
+
+# ---------- migration from version 2 to version 3 (trap and trap_why, Step 2 Part 3b) ----------
+
+# A FROZEN copy of the version-2 exercises table (commit e2d053c), with one exercise from before the traps.
+VERSION_2_TABLES_SQL = """
+CREATE TABLE skills (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, level TEXT NOT NULL, category TEXT NOT NULL, active INTEGER NOT NULL
+);
+CREATE TABLE exercises (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, section TEXT NOT NULL, exercise_type TEXT,
+    skill_id TEXT NOT NULL REFERENCES skills (id), level TEXT NOT NULL, topic TEXT, sub_topic TEXT,
+    prompt_text TEXT NOT NULL, expected_answer TEXT, accepted_answers TEXT NOT NULL DEFAULT '[]', hint TEXT,
+    model TEXT, prompt_version TEXT, created_at TEXT NOT NULL
+);
+INSERT INTO skills VALUES ('to_be', 'Verb to be', 'A2', 'verbs', 1);
+INSERT INTO exercises (section, exercise_type, skill_id, level, topic, prompt_text, expected_answer, created_at)
+VALUES ('practice', 'gap', 'to_be', 'A2', 'travel', 'I ___ tired after the flight.', 'am',
+        '2026-11-19T20:00:00+00:00');
+PRAGMA user_version = 2;
+"""
+
+
+@pytest.fixture
+def version_2_database_path(tmp_path):
+    old_database_path = tmp_path / "v2_tutor.db"
+
+    with sqlite3.connect(old_database_path) as connection:
+        connection.executescript(VERSION_2_TABLES_SQL)
+
+    connection.close()
+
+    return old_database_path
+
+
+def test_init_db_upgrades_a_version_2_database_and_keeps_its_exercise_without_a_trap(version_2_database_path):
+    db.init_db(version_2_database_path)
+
+    unanswered_exercises = db.get_unanswered_exercises("gap", "A2", None, None, version_2_database_path)
+    old_exercise = unanswered_exercises[0][1]
+
+    assert read_version(version_2_database_path) == 3
+    assert len(unanswered_exercises) == 1
+    assert old_exercise.prompt_text == "I ___ tired after the flight."
+    assert old_exercise.trap is None
+    assert old_exercise.trap_why is None
+
+
+def test_the_version_2_backup_is_made_before_the_migration(version_2_database_path):
+    db.init_db(version_2_database_path)
+
+    backups = list_backups(version_2_database_path)
+
+    assert len(backups) == 1
+    assert backups[0].name.startswith("v2_tutor_before_v3_")
+    assert read_version(backups[0]) == 2
+
+
+def test_an_exercise_with_a_trap_is_saved_and_read_back(database_path):
+    exercise = make_exercise("to_be")
+    exercise.trap = "have"
+    exercise.trap_why = "Feelings use be in English, not have."
+    db.save_exercise(exercise, database_path)
+
+    saved_exercise = db.get_unanswered_exercises("gap", "A2", "to_be", None, database_path)[0][1]
+
+    assert saved_exercise.trap == "have"
+    assert saved_exercise.trap_why == "Feelings use be in English, not have."
 
 
 def test_every_version_above_1_has_a_migration():

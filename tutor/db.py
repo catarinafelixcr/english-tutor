@@ -24,7 +24,7 @@ PROJECT_FOLDER = Path(__file__).resolve().parent.parent
 DEFAULT_DATABASE_PATH = PROJECT_FOLDER / "data" / "tutor.db"
 
 # Change this number only together with a new entry in MIGRATIONS (below).
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 CREATE_TABLES_SQL = """
@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS exercises (
     expected_answer  TEXT,
     accepted_answers TEXT NOT NULL DEFAULT '[]',
     hint             TEXT,
+    trap             TEXT,
+    trap_why         TEXT,
     model            TEXT,
     prompt_version   TEXT,
     created_at       TEXT NOT NULL
@@ -117,6 +119,11 @@ MIGRATIONS = {
         "ALTER TABLE exercises ADD COLUMN exercise_type TEXT",
         "UPDATE exercises SET exercise_type = 'gap' WHERE section = 'practice'",
     ],
+    # Step 2, Part 3b: the likely wrong answer and why it is wrong. Old exercises keep NULL (no trap check).
+    3: [
+        "ALTER TABLE exercises ADD COLUMN trap TEXT",
+        "ALTER TABLE exercises ADD COLUMN trap_why TEXT",
+    ],
 }
 
 UPSERT_SKILL_SQL = """
@@ -128,9 +135,9 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT_EXERCISE_SQL = """
 INSERT INTO exercises (
     section, exercise_type, skill_id, level, topic, sub_topic, prompt_text, expected_answer, accepted_answers, hint,
-    model, prompt_version, created_at
+    trap, trap_why, model, prompt_version, created_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 INSERT_ATTEMPT_SQL = """
@@ -285,8 +292,8 @@ def save_exercise(exercise, database_path=DEFAULT_DATABASE_PATH):
 
     exercise_values = (
         exercise.section, exercise.exercise_type, exercise.skill_id, exercise.level, exercise.topic, exercise.sub_topic,
-        exercise.prompt_text, exercise.expected_answer, accepted_answers_text, exercise.hint, exercise.model,
-        exercise.prompt_version, to_iso_text(created_at),
+        exercise.prompt_text, exercise.expected_answer, accepted_answers_text, exercise.hint, exercise.trap,
+        exercise.trap_why, exercise.model, exercise.prompt_version, to_iso_text(created_at),
     )
 
     with connect(database_path) as connection:
@@ -440,7 +447,8 @@ def row_to_exercise(exercise_row):
                         sub_topic=exercise_row["sub_topic"], prompt_text=exercise_row["prompt_text"],
                         expected_answer=exercise_row["expected_answer"],
                         accepted_answers=json.loads(exercise_row["accepted_answers"]), hint=exercise_row["hint"],
-                        model=exercise_row["model"], prompt_version=exercise_row["prompt_version"],
+                        trap=exercise_row["trap"], trap_why=exercise_row["trap_why"], model=exercise_row["model"],
+                        prompt_version=exercise_row["prompt_version"],
                         created_at=datetime.fromisoformat(exercise_row["created_at"]))
 
     return exercise

@@ -10,6 +10,7 @@ from tutor import db, llm, prompts, skills
 from tutor.schemas import (
     Exercise,
     GapExercise,
+    contains_whole_words,
     make_gap_exercise_batch_schema,
     make_gap_exercise_draft_schema,
     split_gap_exercise_items,
@@ -54,6 +55,25 @@ def choose_random_sub_topic(topic):
     return random.choice(TOPICS[topic])
 
 
+def choose_word_traps(skill_id):
+    # One known trap pair per exercise of the batch, all different (word_choice, false_friends).
+    # An empty list for a skill with no known traps: the AI then finds the trap itself.
+    word_traps = skills.get_word_traps(skill_id)
+
+    if len(word_traps) == 0:
+        return []
+
+    return random.sample(word_traps, BATCH_SIZE)
+
+
+def find_word_trap_problem(draft, word_trap):
+    # The AI must use the Portuguese word the code chose for this position. Returns a reason, or "" if it is fine.
+    if not contains_whole_words(draft.sentence, word_trap["portuguese"]):
+        return "the Portuguese word of the situation is not in the brackets: " + word_trap["portuguese"]
+
+    return ""
+
+
 # ---------- create and save one exercise ----------
 
 def check_gap_skill_and_level(skill_id, level):
@@ -91,7 +111,8 @@ def create_gap_exercise(skill_id, level, topic, database_path=db.DEFAULT_DATABAS
     exercise = Exercise(section="practice", exercise_type="gap", skill_id=skill_id, level=level, topic=topic,
                         sub_topic=sub_topic, prompt_text=gap_exercise.sentence,
                         expected_answer=gap_exercise.expected_answer, accepted_answers=gap_exercise.accepted_answers,
-                        hint=gap_exercise.hint, model=model_returned, prompt_version=prompt_version)
+                        hint=gap_exercise.hint, trap=gap_exercise.trap, trap_why=gap_exercise.trap_why,
+                        model=model_returned, prompt_version=prompt_version)
     exercise_id = db.save_exercise(exercise, database_path)
 
     return exercise, exercise_id
@@ -126,15 +147,19 @@ def create_gap_exercises(skill_id, level, topic, database_path=db.DEFAULT_DATABA
     sub_topics = random.sample(TOPICS[topic], BATCH_SIZE)
     used_sentences = db.get_exercise_sentences(skill_id, database_path)
     recent_sentences = used_sentences[:SENTENCES_TO_AVOID_IN_PROMPT]
+    word_traps = choose_word_traps(skill_id)
 
     prompt_text, prompt_version = prompts.build_gap_exercise_batch_prompt(level, topic, sub_topics, skill,
-                                                                          recent_sentences)
+                                                                          recent_sentences, word_traps)
     batch_schema = make_gap_exercise_batch_schema(used_sentences, skills.get_gap_clue(skill_id))
     batch, model_returned = llm.ask(prompt_text, prompt_version, batch_schema, "create", budget)
 
     # The batch schema already checked that at least one item is valid. Now we split the good from the bad.
     items_asked_for = batch.exercises[:BATCH_SIZE]
     valid_items, rejected_items = split_gap_exercise_items(items_asked_for, batch_schema.strict_draft_schema)
+
+    if len(word_traps) > 0:
+        valid_items = drop_items_without_their_word_trap(valid_items, word_traps, rejected_items)
 
     for extra_position in range(BATCH_SIZE, len(batch.exercises)):
         rejected_items.append({"position": extra_position, "reason": "more exercises than asked for",
@@ -152,11 +177,28 @@ def create_gap_exercises(skill_id, level, topic, database_path=db.DEFAULT_DATABA
                             sub_topic=sub_topics[position], prompt_text=gap_exercise.sentence,
                             expected_answer=gap_exercise.expected_answer,
                             accepted_answers=gap_exercise.accepted_answers, hint=gap_exercise.hint,
-                            model=model_returned, prompt_version=prompt_version)
+                            trap=gap_exercise.trap, trap_why=gap_exercise.trap_why, model=model_returned,
+                            prompt_version=prompt_version)
         exercise_id = db.save_exercise(exercise, database_path)
         saved_exercises.append((exercise, exercise_id))
 
     return saved_exercises
+
+
+def drop_items_without_their_word_trap(valid_items, word_traps, rejected_items):
+    # Keeps the items that use the Portuguese word of their position; adds the others to rejected_items (logged).
+    kept_items = []
+
+    for position, draft in valid_items:
+        problem = find_word_trap_problem(draft, word_traps[position])
+
+        if problem != "":
+            rejected_items.append({"position": position, "reason": problem, "item": draft.model_dump()})
+            continue
+
+        kept_items.append((position, draft))
+
+    return kept_items
 
 
 # ---------- the exercise stock (Step 2, Part 2) ----------

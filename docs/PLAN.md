@@ -224,6 +224,25 @@ This is the first version you can really study with, and it copies the page I bu
 - [x] One answer is never saved twice (2026-11-16): the page reserves one `submission_id` per exercise on screen. `grade_gap_answer()` stops before the AI call if it is already saved, and `save_attempts()` checks again under a write lock (`BEGIN IMMEDIATE`). Tests: the same answer twice, and two gradings at the same moment.
 - [x] Save every attempt with `save_attempt()`, including the seconds you took.
 
+**Part 3b: better exercises and a clearer page (2026-11-19, after using the Practice page)**
+
+- [x] A clue type per skill (`skills.GAP_CLUES`): `base_word` (go), `words` (he / ask), `portuguese` (perder), `add_words` (last week → "last week", life → "Life") or `none`. No "choice" clue: two options in brackets are a 50% guess. The prompt gets only the block of the skill's clue; the code checks the brackets. (Found: 5 of 5 `word_choice` exercises tested tenses, because the prompt spoke only about verb forms and time words.)
+- [x] `add_words` for articles and prepositions of time and place: their right answer is often "no word", which an empty gap cannot say. The answer must end with the words in brackets (capital letters ignored).
+- [x] `trap` and `trap_why` in every new exercise (database version 3): the wrong answer a Portuguese speaker would most likely write, and why it is wrong. The trap must be clearly wrong (not half right, not a spelling slip, not another skill). If my answer is the trap, the code grades it wrong with `trap_why`, with no AI request.
+- [x] Known Portuguese → English traps (`skills.WORD_TRAPS`) for `word_choice` and `false_friends`: the code gives the prompt one pair per exercise. A pair can have `also_right` answers (costume → habit, also custom).
+- [ ] About 30 `word_choice` pairs (tirar, marcar, acabar de, fazer anos...), reviewed by me before they join the list.
+- [ ] Later: in about 1 of 5 `word_choice` exercises, Gemini may propose a NEW pair. That exercise is not saved to the stock; the pair goes to `eval/trap_candidates.csv`, and I approve it before it joins the list.
+- [ ] Later (Step 4, Writing): `word_choice` mistakes detected in Writing become trap candidates too.
+- [ ] One demo batch per clue type with real Gemini, compared with the first demo (13 good of 29).
+- [ ] Level before skill: the skill list shows the skills of the chosen level first (without the level), then the lower levels with their level. Higher skills are hidden.
+- [ ] One instruction line above the answer box, from the clue type ("Write the verb in brackets in the correct form"). It describes the task, not the rule.
+
+**Part 3c: rule cards and the help ladder**
+
+- [ ] A rule card per skill: what it is, when to use it, 2 examples, the comparison with Portuguese, and the typical mistake, in English and European Portuguese. Claude writes them in batches of about 10 skills; I review each batch before the next. A Portuguese tense name is never said to equal an English one when the meaning differs ("pretérito perfeito composto" is not the present perfect). A Gemini script stays an idea for skills added later.
+- [ ] The help ladder, one step at a time: (1) I type; (2) hint; (3) "What rule is this?" (skill name + the start of the card); (4) 3 options (the expected answer, the trap and one more); (5) show the answer, which I then type. The highest step used is saved with the attempt (`help_level`, database version 4).
+- [ ] Step 3 mastery: a correct answer with options counts 0.5; an answer I saw does not count and goes to Review like a wrong one.
+
 **Two more exercise types (same page, same grading code)**
 
 - [ ] Fix the error (find the wrong word and fix it): the AI writes a sentence with one mistake, and you rewrite it correctly.

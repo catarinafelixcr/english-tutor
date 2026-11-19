@@ -110,7 +110,7 @@ BATCH_SUB_TOPICS = ["a delayed flight", "checking in at a hotel", "a lost suitca
 
 def build_batch_prompt_for(skill_id, sentences_to_avoid):
     return prompts.build_gap_exercise_batch_prompt("A2", "travel", BATCH_SUB_TOPICS, skills.get_skill(skill_id),
-                                                   sentences_to_avoid)
+                                                   sentences_to_avoid, [])
 
 
 def test_the_batch_prompt_lists_one_numbered_situation_per_exercise():
@@ -163,7 +163,8 @@ def test_the_batch_prompt_no_longer_speaks_about_time_words_or_verb_forms():
 
 
 @pytest.mark.parametrize("skill_id, gap_clue", [("past_simple", "base_word"), ("questions_negatives", "words"),
-                                                ("word_choice", "portuguese"), ("articles_a_an", "none")])
+                                                ("word_choice", "portuguese"), ("articles_a_an", "add_words"),
+                                                ("to_be", "none")])
 def test_the_batch_prompt_has_only_the_clue_rules_of_the_skill(skill_id, gap_clue):
     prompt_text, prompt_version = build_batch_prompt_for(skill_id, [])
 
@@ -172,6 +173,72 @@ def test_the_batch_prompt_has_only_the_clue_rules_of_the_skill(skill_id, gap_clu
             assert clue_rules in prompt_text, clue_type
         else:
             assert clue_rules not in prompt_text, clue_type
+
+
+def test_the_batch_prompt_asks_for_a_trap_that_is_clearly_wrong_and_its_reason():
+    prompt_text, prompt_version = build_batch_prompt_for("present_simple", [])
+
+    assert "- trap: the wrong answer a Portuguese speaker would most likely write" in prompt_text
+    assert "not half right, not a spelling slip, and not\n  a mistake of another skill" in prompt_text
+    assert "- trap_why: for a learner who wrote the trap" in prompt_text
+    assert "Then read it with the trap: the trap\nmust be clearly wrong." in prompt_text
+
+
+def test_the_add_words_clue_says_the_answer_ends_with_the_words_in_brackets():
+    prompt_text, prompt_version = build_batch_prompt_for("prepositions_time", [])
+
+    assert "The expected answer and every accepted answer end with the words in brackets" in prompt_text
+    assert "with nothing before them when no word is needed" in prompt_text
+
+
+def test_word_traps_are_added_to_their_situation_lines():
+    word_traps = skills.WORD_TRAPS["false_friends"][:3]
+
+    prompt_text, prompt_version = prompts.build_gap_exercise_batch_prompt(
+        "B1", "travel", BATCH_SUB_TOPICS, skills.get_skill("false_friends"), [], word_traps)
+
+    assert ("1. a delayed flight | Portuguese word: atualmente | answer: currently | trap: actually"
+            " | the answer is right for: at the present time") in prompt_text
+    assert "2. checking in at a hotel | Portuguese word: assistir a | answer: attend | trap: assist" in prompt_text
+
+
+def test_a_pair_with_other_right_answers_lists_them_on_its_line():
+    costume_trap = None
+
+    for word_trap in skills.WORD_TRAPS["false_friends"]:
+        if word_trap["portuguese"] == "costume":
+            costume_trap = word_trap
+
+    prompt_text, prompt_version = prompts.build_gap_exercise_batch_prompt(
+        "B1", "travel", ["a delayed flight"], skills.get_skill("false_friends"), [], [costume_trap])
+
+    assert "| trap: costume |" in prompt_text
+    assert "| also right, put in accepted_answers: custom" in prompt_text
+
+
+def test_the_situation_lines_have_no_trap_when_the_skill_has_none():
+    prompt_text, prompt_version = build_batch_prompt_for("present_simple", [])
+
+    assert "1. a delayed flight\n2. checking in at a hotel\n3. a lost suitcase" in prompt_text
+    assert "Portuguese word:" not in prompt_text
+
+
+def test_word_traps_need_one_pair_per_situation():
+    word_traps = skills.WORD_TRAPS["false_friends"][:2]
+
+    with pytest.raises(ValueError, match="one pair per sub-topic"):
+        prompts.build_gap_exercise_batch_prompt("B1", "travel", BATCH_SUB_TOPICS, skills.get_skill("false_friends"),
+                                                [], word_traps)
+
+
+def test_the_word_trap_values_do_not_change_the_prompt_version():
+    word_traps = skills.WORD_TRAPS["false_friends"][:3]
+    prompt_text, version_without_traps = build_batch_prompt_for("present_simple", [])
+
+    prompt_text, version_with_traps = prompts.build_gap_exercise_batch_prompt(
+        "B1", "travel", BATCH_SUB_TOPICS, skills.get_skill("false_friends"), [], word_traps)
+
+    assert version_with_traps == version_without_traps
 
 
 def test_every_clue_type_has_clue_rules():
@@ -231,7 +298,7 @@ def test_the_batch_template_has_no_example_of_one_particular_skill():
 def test_the_batch_prompt_version_does_not_depend_on_the_values():
     a2_prompt_text, a2_prompt_version = build_batch_prompt_for("to_be", [])
     c1_prompt_text, c1_prompt_version = prompts.build_gap_exercise_batch_prompt(
-        "C1", "meetings", ["a daily stand-up"], skills.get_skill("inversion"), ["Never ___ I seen this."])
+        "C1", "meetings", ["a daily stand-up"], skills.get_skill("inversion"), ["Never ___ I seen this."], [])
 
     assert a2_prompt_text != c1_prompt_text
     assert a2_prompt_version == c1_prompt_version

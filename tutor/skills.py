@@ -197,9 +197,13 @@ SKILLS = [
 # - words:      the words to use, in their base form: (he / ask). For word order and multi-word structures
 # - portuguese: the Portuguese word to say in English: (fazer), (perder). For vocabulary skills: the Portuguese
 #               word is exactly what leads to the typical mistake
+# - add_words:  the noun or time words to use: (last week), (life), (engineer). The learner adds the word they need
+#               before them, or nothing: "last week", "Life", "an engineer". Added after the demo of 2026-11-19:
+#               a gap cannot say "no word here", so the AI put the whole noun in the gap
+#               ("___ is the key" → communication)
 # - none:       no brackets; the sentence is the only clue
 # No "choice" clue like (make / do): two options in brackets are a 50% guess (my rule, 2026-11-19).
-GAP_CLUE_TYPES = ["base_word", "words", "portuguese", "none"]
+GAP_CLUE_TYPES = ["base_word", "words", "portuguese", "add_words", "none"]
 
 # Every fill-the-gap skill, and only those (a test checks it). A new skill must be added here too.
 GAP_CLUES = {
@@ -214,11 +218,11 @@ GAP_CLUES = {
     "modals_base_verb": "words", "modals_obligation": "portuguese", "modals_deduction": "words",
 
     # articles, nouns and quantifiers
-    "articles_a_an": "none", "articles_no_article": "none", "uncountable_nouns": "base_word",
+    "articles_a_an": "add_words", "articles_no_article": "add_words", "uncountable_nouns": "base_word",
     "much_many": "portuguese",
 
     # prepositions and pronouns
-    "prepositions_time": "none", "prepositions_place": "none", "dependent_prepositions": "none",
+    "prepositions_time": "add_words", "prepositions_place": "add_words", "dependent_prepositions": "none",
     "subject_pronouns": "base_word", "possessive_pronouns": "none", "relative_pronouns": "none",
 
     # comparatives and conditionals
@@ -235,6 +239,82 @@ GAP_CLUES = {
     "phrasal_verbs_common": "portuguese", "phrasal_verbs_separable": "words",
     "make_do": "portuguese", "common_collocations": "portuguese",
     "word_choice": "portuguese", "false_friends": "portuguese", "spelling": "portuguese",
+}
+
+
+# ---------- known Portuguese → English traps (Step 2, Part 3b) ----------
+
+# For these skills, the code gives the prompt ONE pair per exercise, instead of asking the AI to find a trap.
+# Found in the demo of 2026-11-19: asked to find one, the AI chose words with one obvious translation
+# (adotar → adopt), so the exercises tested nothing.
+# - portuguese: the word in brackets (European Portuguese)
+# - answer:     the right English word in this kind of sentence
+# - trap:       the word a Portuguese speaker writes by mistake
+# - used_for:   the kind of sentence where the answer is needed (it guides the AI)
+# - also_right: (optional) other answers that are right too; the AI puts them in accepted_answers
+# word_choice: one Portuguese word, two English words with different meanings.
+# false_friends: an English word that looks like the Portuguese word but means something else.
+WORD_TRAPS = {
+    "word_choice": [
+        {"portuguese": "perder", "answer": "miss", "trap": "lose",
+         "used_for": "a bus, a train, a flight, a meeting or a chance that you do not catch"},
+        {"portuguese": "lembrar", "answer": "remind", "trap": "remember",
+         "used_for": "making ANOTHER person remember something (lembra-me de...)"},
+        {"portuguese": "emprestar", "answer": "lend", "trap": "borrow",
+         "used_for": "giving something to another person for a short time"},
+        {"portuguese": "esperar", "answer": "hope", "trap": "wait",
+         "used_for": "wanting something good to happen (espero que...)"},
+        {"portuguese": "esperar", "answer": "expect", "trap": "wait",
+         "used_for": "thinking that something will happen (esperamos 50 pessoas)"},
+        {"portuguese": "ouvir", "answer": "listen to", "trap": "hear",
+         "used_for": "paying attention on purpose: music, a podcast, a person who is talking"},
+        {"portuguese": "ver", "answer": "watch", "trap": "see",
+         "used_for": "looking at something for some time on purpose: TV, a film, a match"},
+        {"portuguese": "ganhar", "answer": "earn", "trap": "win",
+         "used_for": "money that you get for your work"},
+        {"portuguese": "levar", "answer": "take", "trap": "bring",
+         "used_for": "carrying something from here to another place"},
+        {"portuguese": "conhecer", "answer": "meet", "trap": "know",
+         "used_for": "seeing a person for the first time (conheci-o ontem)"},
+        {"portuguese": "passar", "answer": "spend", "trap": "pass",
+         "used_for": "time or money (passei o fim de semana em casa)"},
+        {"portuguese": "ficar", "answer": "get", "trap": "stay",
+         "used_for": "a change of state: ficar cansado, ficar nervoso, ficar doente"},
+    ],
+    "false_friends": [
+        {"portuguese": "atualmente", "answer": "currently", "trap": "actually", "used_for": "at the present time"},
+        {"portuguese": "assistir a", "answer": "attend", "trap": "assist",
+         "used_for": "being present at a meeting, a class or a conference"},
+        {"portuguese": "assistir a", "answer": "watch", "trap": "assist", "used_for": "a film, a match, a show"},
+        {"portuguese": "pretender", "answer": "intend", "trap": "pretend", "used_for": "having a plan to do something"},
+        {"portuguese": "realizar", "answer": "carry out", "trap": "realize",
+         "used_for": "doing a project, a study, a test or a task"},
+        {"portuguese": "puxar", "answer": "pull", "trap": "push", "used_for": "moving something toward you"},
+        {"portuguese": "eventualmente", "answer": "possibly", "trap": "eventually",
+         "used_for": "something that may happen, or not"},
+        {"portuguese": "livraria", "answer": "bookshop", "trap": "library", "used_for": "a shop that sells books"},
+        {"portuguese": "constipação", "answer": "cold", "trap": "constipation",
+         "used_for": "a small illness with a runny nose (estou com uma constipação)"},
+        {"portuguese": "sensível", "answer": "sensitive", "trap": "sensible",
+         "used_for": "a person who is easily hurt or upset, or skin that reacts easily"},
+        {"portuguese": "parentes", "answer": "relatives", "trap": "parents",
+         "used_for": "the people of your family: uncles, cousins, grandparents"},
+        {"portuguese": "compromisso", "answer": "appointment", "trap": "compromise",
+         "used_for": "a meeting at a fixed time (tenho um compromisso às três)"},
+        {"portuguese": "resumir", "answer": "summarize", "trap": "resume",
+         "used_for": "saying the main points in a few words"},
+        {"portuguese": "data", "answer": "date", "trap": "data",
+         "used_for": "the day of the month: the date of the meeting"},
+        {"portuguese": "pasta", "answer": "folder", "trap": "pasta", "used_for": "a place for files on a computer"},
+        {"portuguese": "costume", "answer": "habit", "trap": "costume",
+         "used_for": "something you usually do (tenho o costume de...)", "also_right": ["custom"]},
+        {"portuguese": "esquisito", "answer": "strange", "trap": "exquisite", "used_for": "unusual, odd"},
+        {"portuguese": "fábrica", "answer": "factory", "trap": "fabric",
+         "used_for": "a building where things are made"},
+        {"portuguese": "discussão", "answer": "argument", "trap": "discussion",
+         "used_for": "a quarrel: the sentence must show clearly that the people were angry (shouting, slamming a "
+                     "door), or discussion would also be right"},
+    ],
 }
 
 
@@ -299,6 +379,14 @@ def get_gap_clue(skill_id):
         raise ValueError("this skill has no gap clue (not a fill-the-gap skill): " + skill_id)
 
     return GAP_CLUES[skill_id]
+
+
+def get_word_traps(skill_id):
+    # The known Portuguese → English traps of a skill, or an empty list (most skills have none).
+    if skill_id not in WORD_TRAPS:
+        return []
+
+    return WORD_TRAPS[skill_id]
 
 
 def get_fill_the_gap_skills_up_to_level(level):

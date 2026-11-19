@@ -67,6 +67,9 @@ class Exercise(BaseModel):
     expected_answer: str | None = None
     accepted_answers: list[str] = Field(default_factory=list)
     hint: str | None = None
+    # The likely wrong answer and why it is wrong (database version 3). Empty for older exercises.
+    trap: str | None = None
+    trap_why: str | None = None
     model: str | None = None
     prompt_version: str | None = None
     created_at: datetime | None = None
@@ -198,7 +201,19 @@ class GapExerciseDraft(BaseModel):
     signal: str
     expected_answer: str
     accepted_answers: list[str] = Field(default_factory=list)
+    # The wrong answer a Portuguese speaker would most likely write, and why it is wrong (Step 2, Part 3b).
+    # If my answer is the trap, the code grades it with trap_why: no AI request.
+    trap: str
+    trap_why: str
     hint: str
+
+    @field_validator("trap", "trap_why")
+    @classmethod
+    def trap_fields_must_not_be_empty(cls, text, validation_info):
+        if text.strip() == "":
+            raise ValueError("the " + validation_info.field_name + " is empty")
+
+        return text.strip()
 
     @field_validator("sentence")
     @classmethod
@@ -275,6 +290,17 @@ class GapExerciseDraft(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def trap_must_be_a_wrong_answer(self):
+        # The trap is graded as wrong in code, so it can never be a correct answer.
+        correct_answers = [self.expected_answer] + self.accepted_answers
+
+        for correct_answer in correct_answers:
+            if normalize_answer(self.trap) == normalize_answer(correct_answer):
+                raise ValueError("the trap is a correct answer: " + self.trap)
+
+        return self
+
+    @model_validator(mode="after")
     def hint_must_not_give_the_answer(self):
         if contains_whole_words(self.hint, self.expected_answer):
             raise ValueError("the hint gives the expected answer: " + self.hint)
@@ -309,7 +335,21 @@ class GapExerciseDraft(BaseModel):
         if self.gap_clue == "portuguese":
             self.check_the_portuguese_clue_has_no_answer(bracket_texts[0])
 
+        if self.gap_clue == "add_words":
+            self.check_the_answers_end_with_the_clue(bracket_texts[0])
+
         return self
+
+    def check_the_answers_end_with_the_clue(self, bracket_text):
+        # (last week) → "last week"; (life) → "Life"; (engineer) → "an engineer". Capital letters do not matter.
+        clue_words = normalize_answer(bracket_text)
+
+        for answer in [self.expected_answer] + self.accepted_answers:
+            answer_words = normalize_answer(answer)
+
+            if answer_words != clue_words and not answer_words.endswith(" " + clue_words):
+                raise ValueError("the answer does not end with the words in brackets: " + answer + " / ("
+                                 + bracket_text + ")")
 
     def check_the_portuguese_clue_has_no_answer(self, bracket_text):
         # (fazer) is a clue; (make) would give the answer away.
@@ -355,6 +395,8 @@ class GapExerciseItem(BaseModel):
     signal: str
     expected_answer: str
     accepted_answers: list[str] = Field(default_factory=list)
+    trap: str
+    trap_why: str
     hint: str
 
 
