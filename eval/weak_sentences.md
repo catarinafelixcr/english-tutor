@@ -19,6 +19,20 @@ form, or when its words are above the level.
 | 8 | My flight ___ (leave) very late today because of the bad weather. | leaves | gap_exercise_batch@ef2ee2 | "today" calls for "is leaving" or "left", although the prompt forbids such signals |
 | 11 | The airline ___ (find) missing bags very quickly. | finds | gap_exercise_batch@ef2ee2 | No time signal: "found" fits too |
 
+## word_choice (B1)
+
+Not removed, but reported as `bad_sentence` in `problem_reports` (2026-11-19), so they leave the stock and their
+attempts do not count for mastery (Step 4). #28 was found while writing the gold file; then all 5 word_choice
+exercises of that batch had the same problem. Counted in the Part 4f hand review of generated exercises.
+
+| Reported id | Sentence | Expected | Prompt version | Why it is weak |
+| --- | --- | --- | --- | --- |
+| 28 | Yesterday afternoon, she ___ [write] a complex SQL query to extract the user logs. | wrote | gap_exercise_batch@a64005 | Made for word_choice, but it tests the past simple (a verb in brackets, one form) |
+| 29 | Right now, the machine learning model ___ [produce] strange results for the sales forecast. | is producing | gap_exercise_batch@a64005 | Tests the present continuous |
+| 30 | Last week, the data team ___ [clean] a very messy customer dataset before the meeting. | cleaned | gap_exercise_batch@a64005 | Tests the past simple |
+| 31 | Every Monday morning, our department ___ [use] a new data analysis tool for reports. | uses | gap_exercise_batch@a64005 | Tests the present simple |
+| 32 | By next Friday, the analyst ___ [finish] the final report before the strict deadline. | will have finished | gap_exercise_batch@a64005 | Tests the future perfect (a B2 form in a B1 exercise) |
+
 ## What the prompt versions are
 
 - `gap_exercise@c2deeb`: Step 1, one exercise per request.
