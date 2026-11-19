@@ -147,6 +147,15 @@ def test_my_answer_goes_into_the_gap_and_the_bracket_is_removed():
     assert sentence_with_answer == "She has finish the report already."
 
 
+def test_a_square_bracket_after_the_gap_is_removed_too():
+    # Old exercises (#18 to #22) have [send]. New exercises refuse square brackets (Step 2, Part 3b).
+    sentence_with_answer = grading.build_sentence_with_answer("Yesterday, the manager ___ [send] the report.",
+                                                              "sended")
+
+    assert sentence_with_answer == "Yesterday, the manager sended the report."
+    assert not grading.quote_is_in_sentence("send", sentence_with_answer)
+
+
 def test_a_sentence_without_a_bracket_also_works():
     sentence_with_answer = grading.build_sentence_with_answer("I ___ 25 years old.", "  have ")
 

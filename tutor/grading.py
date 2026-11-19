@@ -25,8 +25,9 @@ DOUBLE_QUOTE_MARKS = ["\"", "“", "”", "«", "»"]
 # Punctuation removed at the END of a quote or a sentence before comparing: "finish." = "finish".
 SENTENCE_END_PUNCTUATION = ".,!?;:"
 
-# The verb in brackets right after the gap: "___ (finish)". It is a clue, not part of the sentence.
-GAP_WITH_BRACKET_PATTERN = r"___\s*\([^)]*\)"
+# The clue in brackets right after the gap: "___ (finish)". It is a clue, not part of the sentence.
+# Square brackets too: some old exercises have "___ [send]" (new ones refuse them, Step 2 Part 3b).
+GAP_WITH_BRACKET_PATTERN = r"___\s*(\([^)]*\)|\[[^\]]*\])"
 
 # Punctuation removed at the END of an answer only: "goes." = "goes". Never inside ("don't", "e.g").
 FINAL_PUNCTUATION = ".,"
