@@ -5,6 +5,61 @@ Newest entry at the top. One entry per work session.
 
 ---
 
+## 2026-11-19 - Step 2 Part 4a (gold file), Part 3b (clue types, traps, prompt v2)
+
+**What I did**
+
+- Part 4a: `eval/gold_gap.csv`, 50 rows (15 A2, 15 B1, 12 B2, 8 C1, 33 skills), with 11 of my real mistakes; Claude's blind verdicts in `eval/gold_gap_claude.csv` (I don't open it until my verdicts are done). My verdicts: in progress.
+- Plan changes: rule 5 "You type first" (options and word tiles only as help steps); new exercise types for later; Steps 3 and 4 swapped (Tutor brain and Learn now come before Writing); Part 3b and 3c written in PLAN.md.
+- A clue type per skill (`skills.GAP_CLUES`): `base_word`, `words`, `portuguese`, `add_words`, `none`. The prompt gets only the block of the skill's clue, and the code checks the brackets.
+- Prompt v2 (`gap_exercise_batch@ee2653`): `add_words` clue, `trap` + `trap_why` in every exercise (database v3, with backup), known Portuguese → English traps (`skills.WORD_TRAPS`: 12 word_choice + 19 false_friends pairs). An answer equal to the trap is graded wrong in code, with no AI request.
+- 19 exercises reported as `bad_sentence` (#28–#32 and 14 from the first clue demo).
+- Commits: `e898468`, `4293ee8`, `9a41807`, `bccc95e`, `e2d053c`, `c4b15f2`, all pushed. Tests: 435, ruff clean.
+
+**Problems and how we solved them**
+
+| Problem | What we found | Fix |
+| --- | --- | --- |
+| 5 of 5 `word_choice` exercises tested tenses | The prompt spoke only about verb forms and time words, so Gemini wrote verb exercises | A clue type per skill; the prompt gets only its block |
+| Articles and prepositions: the whole noun was in the gap, or the answer was empty | An empty gap cannot say "no word here" | `add_words` clue: the answer ends with the words in brackets ("last week", "Life") |
+| Gemini did not build sentences around the typical mistake | Nothing asked for it | `trap` + `trap_why`, and for word_choice a reviewed list of pairs |
+| Old exercises #18–#22 had square brackets | The grader removed only round brackets | Both kinds removed (`e2d053c`) |
+
+**Demo results (same 6 skills)**
+
+| Clue | Skill | Prompt 1 | Prompt v2 |
+| --- | --- | --- | --- |
+| base_word | comparatives_superlatives | 4/5 | 5/5 |
+| words | questions_negatives | 3/5 | 4/5 |
+| portuguese + pairs | word_choice | 0/5 | 5/5 |
+| portuguese | make_do | 4/5 | 3/5 (all 5 answers "make") |
+| add_words | prepositions_time | 2/4 | failed twice (signal = the words in brackets; empty answers) |
+| add_words | articles_no_article | 0/5 | 2/5 (3 traps are correct English) |
+
+Total: 13 of 29 → 19 of 25. The big lesson: **a wrong trap is worse than a bad sentence**, because the code grades it without the AI. #81 ("do a presentation" is fine), #83 ("the manager") and #86 ("the hardware delivery", with a false rule) would mark a correct answer wrong.
+
+**Open decisions: start the next session here** (my answers, 2026-11-19; no code written yet)
+
+1. **Confirmed traps.** The code grades a trap only when it is confirmed.
+   - Traps from my reviewed lists (word_choice, false_friends, make_do) are confirmed from the start.
+   - A trap Gemini invented goes to the AI grader the first time. If the AI also says wrong → mark it confirmed, and the code grades it after that. If the AI disagrees → drop the trap (set it empty) and log it.
+   - Storage: a `trap_confirmed` column in `exercises` (0/1). Claude's advice: put it in the SAME migration as `help_level` (database v4), because both come now and one backup is enough; a column is better than working it out from old attempts (simpler, and testable). The pair lists set it to 1 when the exercise is saved.
+   - Until this is built, the code trusts every trap. Existing traps #62–#86 should be marked unconfirmed by the migration (only list-based ones confirmed).
+2. **Report as `bad_sentence`:** #70, #80, #81, #83, #84, #86.
+3. **Word choice pairs: 18 new ones approved, with my changes:**
+   - Remove "acabar de" (it is a tense, not a word choice).
+   - "ainda (não) → yet": the gap must be at the END of the sentence ("I still haven't finished" is correct).
+   - `also_right`: pedir → ask for; conta → check; subir → go up, increase; adormecer → go to sleep; deixar → allow. (marcar → book, schedule and nota → mark, as Claude proposed.)
+   - Add the false friend atender (o telefone) → answer, trap attend.
+   - Already done in `c4b15f2`: keep esperar → hope; costume also_right custom; discussão only when the sentence is clearly a quarrel.
+4. **A `make_do` pair list** in `WORD_TRAPS` (half make, half do), so Gemini only writes the sentence. Claude writes it; I review it.
+5. **`add_words` fix:** for this clue only, the signal may be the words in brackets; the prompt says the answer is the whole text of the gap ("in the evening"), never only the small word and never empty. Then a demo run.
+6. **Later (PLAN.md Part 3b):** Gemini proposes new pairs in about 1 of 5 word_choice exercises → `eval/trap_candidates.csv`, I approve; Writing mistakes become candidates too (Step 4).
+7. **After that, as planned:** demo runs (prepositions_time, make_do, word_choice); Part 3b step 2 (instruction line) and step 3 (level before skill); Part 3c (rule cards, help ladder, database v4); then Part 4b–4g.
+8. Learning notes to offer: clue types and traps; Cohen's kappa and the confusion matrix.
+
+---
+
 ## 2026-11-16 - Step 2 Part 3: the Practice page
 
 **What I did**
