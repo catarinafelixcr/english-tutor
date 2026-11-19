@@ -201,7 +201,7 @@ def build_gap_exercise_batch_prompt(level, topic, sub_topics, skill, sentences_t
 
 GAP_GRADE_PROMPT_NAME = "gap_grade"
 
-# English until Step 4 adds the selector (Portuguese or English).
+# English until Step 3 adds the selector (Portuguese or English).
 DEFAULT_EXPLANATION_LANGUAGE = "English"
 
 # The AI is called ONLY when the code found no match, so the answer is never the expected or an accepted one.

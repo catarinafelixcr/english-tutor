@@ -42,11 +42,11 @@ Done on: 2026-11-16
 
 Done when: you can do 20 sentences without an app error, every attempt is in the database with a skill tag, and the grader agrees with you on 45 of the 50 gold rows.
 
-## Step 3 - Writing
+## Step 3 - Tutor brain, Learn and Home
 
-Not started.
+Not started. (Swapped with Writing on 2026-11-19; older JOURNAL entries call it Step 4.)
 
-## Step 4 - Tutor brain, Learn and Home
+## Step 4 - Writing
 
 Not started.
 

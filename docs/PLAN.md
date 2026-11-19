@@ -8,10 +8,10 @@ The app is one website with a menu on the left, and each menu item is one way to
 
 | Section | What you do | What the AI does | Built in |
 | --- | --- | --- | --- |
-| Home | See today's plan: reviews due, your weak topic, your daily goal | Chooses today's exercises for you | Step 4 |
-| Learn | Read a short lesson on one grammar topic, then answer 5 sentences about it | Writes the lesson and starts with your weakest topics | Step 4 |
+| Home | See today's plan: reviews due, your weak topic, your daily goal | Chooses today's exercises for you | Step 3 |
+| Learn | Read a short lesson on one grammar topic, then answer 5 sentences about it | Writes the lesson and starts with your weakest topics | Step 3 |
 | Practice | Fill the gap, fix the error, put words in order | Creates the sentences, checks your answer, explains the rule | Step 2 |
-| Writing | Write a sentence, an email or a chat message | Lists each mistake with the fix and the reason | Step 3 |
+| Writing | Write a sentence, an email or a chat message | Lists each mistake with the fix and the reason | Step 4 |
 | Listening | Hear a sentence and type what you heard | Compares word by word and shows what you missed | Step 5 |
 | Translate | Read a sentence in your language and write it in English | Judges the meaning, not the exact words | Step 6 |
 | Review | Repeat sentences you got wrong, on a schedule | Chooses what is due today | Step 7 |
@@ -60,8 +60,8 @@ The dashboard screen comes late (Step 8), but saving the data starts in Step 1. 
 1. **Step 0 – Setup.** Repo, tools, empty app that opens in the browser.
 2. **Step 1 – Foundation.** The AI engine, the database and the skill list.
 3. **Step 2 – Practice.** Fill the gap, with every answer saved. This is the first version you can study with.
-4. **Step 3 – Writing.** Check my sentence.
-5. **Step 4 – Tutor brain.** Weak topics, "you must study X", lessons, Home page.
+4. **Step 3 – Tutor brain.** Weak topics, "you must study X", lessons, Home page.
+5. **Step 4 – Writing.** Check my sentence.
 6. **Step 5 – Listening.** Listen button everywhere, plus dictation.
 7. **Step 6 – Translate.**
 8. **Step 7 – Review.** Spaced repetition of your mistakes.
@@ -145,7 +145,7 @@ This step has no screen to show, but every later step depends on it.
 - [ ] Table `skills`: id, name, level, category, active.
 - [ ] Table `exercises`: id, section, skill\_id, level, topic, sub\_topic, prompt text, expected answer (can be empty, for free Writing texts), accepted answers (a JSON list, `[]` when none), hint, model, prompt version, created date. Accepted answers and hint are needed by the code check, the hint button (Step 2) and Review (Step 7).
 - [ ] Table `attempts`: id, submission\_id, exercise\_id (required), section, skill\_id, source, your answer, verdict (correct, partial, wrong), error type (grammar, vocabulary, spelling, word order, naturalness), explanation, mistake text, correction, hint used, seconds taken, graded by, model, prompt version, date.
-- [ ] `source`: "targeted" = the exercise was made to test this skill; "detected" = a mistake the exercise did not target (for example in free writing). Only targeted attempts count for mastery (Step 4).
+- [ ] `source`: "targeted" = the exercise was made to test this skill; "detected" = a mistake the exercise did not target (for example in free writing). Only targeted attempts count for mastery (Step 3).
 - [ ] `submission_id`: all rows from one answer share it (a `uuid`). We count answers by submission, not by row.
 - [ ] `mistake_text` and `correction` (both optional): the exact wrong part I wrote, and the right form (or the natural version). For fill the gap: my answer and the expected answer. For Writing: the wrong fragment and its fix. No third "corrected answer" column.
 - [ ] `graded_by`: "code" or "ai". When the code grades, model and prompt version stay empty.
@@ -153,9 +153,9 @@ This step has no screen to show, but every later step depends on it.
 - [ ] An attempt is a Pydantic model `Attempt` with `Literal` values for section, verdict, error type, source and graded by. `save_attempt(attempt)` receives the model.
 - [ ] Table `reviews`: exercise\_id, box number, due date.
 - [ ] Table `lessons`: skill\_id, lesson text, date.
-- [ ] Table `lesson_events`: skill\_id, opened\_at (UTC). One row each time I open a lesson in Learn (Step 4). The Step 8 chart "before and after a lesson" needs it.
+- [ ] Table `lesson_events`: skill\_id, opened\_at (UTC). One row each time I open a lesson in Learn (Step 3). The Step 8 chart "before and after a lesson" needs it.
 - [ ] One `connect()` function opens every connection with `PRAGMA foreign_keys = ON` (SQLite turns it off by default).
-- [ ] All dates in UTC, ISO format (`2026-11-16T21:04:05+00:00`). Steps 4 and 7 convert to `Europe/Lisbon` to count days.
+- [ ] All dates in UTC, ISO format (`2026-11-16T21:04:05+00:00`). Steps 3 and 7 convert to `Europe/Lisbon` to count days.
 - [ ] `init_db()` is safe to run many times: `CREATE TABLE IF NOT EXISTS`, insert-or-update skills, never deletes. It stops with an error if a skill id in the database is missing from `skills.py`. It sets `PRAGMA user_version = 1`; write migrations only when a later step needs a new column.
 - [ ] Write the helper functions `save_exercise()`, `save_attempt()`, `get_attempts()` (returns a pandas DataFrame) and `init_db()`.
 - [ ] Write pytest tests with a temporary database: save one attempt and read it back; an unknown exercise\_id is refused; an unknown skill\_id is refused; `init_db()` twice gives no duplicates; a skill missing from `skills.py` raises an error.
@@ -176,7 +176,7 @@ This is the first version you can really study with, and it copies the page I bu
 **Create sentences**
 
 - [x] Write the Pydantic schema `GapExercise`: sentence with `___`, expected answer, other accepted answers, skill id, hint, level. (Done in Step 1, Part 3 and 5.)
-- [ ] The CODE chooses the skill, never the AI: my choice in the skill selector, or the tutor's choice (Step 4). The prompt gets ONE skill (with its typical mistake and `tag_when`); the AI only writes the sentences. For variety, the code also sends a random sub-topic and the last few sentences on that skill, to avoid. (Found in the Step 1 experiments: when the AI chose, it always wrote "My brother usually ___ (wake) up".)
+- [ ] The CODE chooses the skill, never the AI: my choice in the skill selector, or the tutor's choice (Step 3). The prompt gets ONE skill (with its typical mistake and `tag_when`); the AI only writes the sentences. For variety, the code also sends a random sub-topic and the last few sentences on that skill, to avoid. (Found in the Step 1 experiments: when the AI chose, it always wrote "My brother usually ___ (wake) up".)
 - [ ] Write the prompt in `prompts.py`. It receives the level, the topic, the sub-topic, ONE skill and the sentences to avoid, and returns 5 exercises. Fill the gap never uses `capitalization` (the code check ignores capital letters, so it could never be wrong), and the skill selector does not show it for fill the gap. The caller passes only skills at or below the requested level. (The old "check each `exercise.level`" is obsolete since Step 1 Part 5: the AI does not return the level, the code adds it.)
 - [ ] Each exercise of a batch gets its own random sub-topic (5 different situations of the topic). The hint is about the MEANING of the sentence, never the grammar rule or the tense (the Step 1 hints named the rule).
 - [x] `signal` field (2026-11-16): the AI writes the exact words of the sentence that make the tested form the only natural answer. The code checks it is not empty, appears in the sentence (whole words), and is not the gap or the verb in brackets. No database column: the AI log keeps it.
@@ -205,12 +205,12 @@ This is the first version you can really study with, and it copies the page I bu
 - [x] `GapGrade` has one optional `detected_mistake`: skill id (from the list, checked in code), error type, mistake text, correction. Spelling is `skill_id = spelling`.
 - [x] On screen: green = correct (a spelling or capitalization slip adds a small reminder); yellow "Almost" = tested skill correct + a detected grammar mistake; yellow "Partly right" = partial; red = wrong.
 - [x] Every explanation of a wrong or partial answer has 3 parts, in this order: (a) quote what I wrote, (b) why it is wrong in this sentence, (c) the rule in one line with the correct form. No general grammar text that ignores my answer.
-- [x] The 3 parts are 3 fields in `GapGrade`: `mistake_text`, `why_wrong`, `rule`. `mistake_text` is the same value saved in the `mistake_text` column; Writing (Step 3) uses the same field and the same check.
+- [x] The 3 parts are 3 fields in `GapGrade`: `mistake_text`, `why_wrong`, `rule`. `mistake_text` is the same value saved in the `mistake_text` column; Writing (Step 4) uses the same field and the same check.
 - [x] The 3 fields are required when the verdict is wrong or partial, and empty when it is correct. For a correct answer that differs from the expected one, one short line in the optional field `note` confirms it is also right.
 - [ ] Ambiguous sentences (2026-11-16): when my answer is natural in the sentence but different from the expected one (for example another tense that the sentence allows), the verdict is correct, with the "also right" note. The prompt rule ("one clear signal, only the tested form fits") cannot remove every ambiguous sentence, so the grader is the second protection. Write this rule in the grader prompt, and add gold rows for it.
 - [x] Code check: `mistake_text` must appear in the full sentence with my answer inserted (not only in my answer). Ignore capital letters, quote marks, apostrophe styles (' and ’) and extra spaces.
 - [x] If the check fails: retry once at most. If it fails again, use my answer as `mistake_text`, show the explanation, and log the case. Never block me.
-- [x] `why_wrong` and `rule` follow my explanation language setting (English by default until Step 4 adds the selector). `mistake_text` is never translated or changed.
+- [x] `why_wrong` and `rule` follow my explanation language setting (English by default until Step 3 adds the selector). `mistake_text` is never translated or changed.
 - [x] In the database, the 3 parts are joined into the `explanation` column.
 - [x] Tone: kind and encouraging, explain the reason (often the Portuguese structure behind the mistake). The verdict stays strict.
 - [x] One slip, one skill (2026-11-16, after the grade demo: "writed" was a wrong verdict AND a detected irregular_verbs row). The detected mistake cannot quote the same words as the main mistake. Checked in code (`grading.py`), with an explicit "She has writed it" example in the prompt. One retry (the same retry as the quotes, one note per problem). If it happens again: keep the main verdict, drop the detected row, log it. Never count one slip against two skills.
@@ -252,27 +252,9 @@ This is the first version you can really study with, and it copies the page I bu
 
 **Done when:** you can do 20 sentences without an error, every attempt is in the database with a skill tag, and the grader agrees with you on 45 of the 50 gold rows.
 
-## Step 3 – Writing (check my sentence)
+## Step 3 – Tutor brain, Learn and Home
 
-Here you write freely and the AI finds every mistake, so one text can create several rows in the database.
-
-- [ ] Add a text box and a "Check" button. Limit the text to about 150 words to keep answers fast.
-- [ ] Write the schema `WritingCheck`: verdict, corrected text, more natural version, praise, and a list of mistakes. Each mistake has the wrong part, the fix, the reason, the skill id and the error type.
-- [ ] Write the prompt. The AI must keep your meaning, correct only real errors, and choose skill ids from your list.
-- [ ] Show your text with the wrong parts in red and the fixes in green.
-- [ ] Show the corrected text and the more natural version below.
-- [ ] Naturalness: when a sentence is correct but a native speaker would say it differently, save it with error type `naturalness`, verdict correct, source detected, and the closest skill (if nothing fits, `word_choice`). It never lowers the mastery score. Save my sentence + the natural version, so Review (Step 7) can bring these "expressions to learn" back.
-- [ ] Each checked text creates one row in `exercises` (section writing, prompt text = the writing prompt or your text, expected answer empty), so every attempt has an exercise\_id.
-- [ ] Save one attempt per mistake, verdict wrong, with its skill id and source "detected". For a text with no mistakes, save one correct attempt with the skill `writing_general`. All rows of one text share the same submission\_id.
-- [ ] Add a "Give me a writing prompt" button that uses your level and topic.
-- [ ] Add a "Try again" button: you rewrite the text without looking at the fix, and the AI checks it again.
-- [ ] Add 15 rows to the gold file for writing. Include 5 correct texts, to check that the AI does not invent mistakes.
-
-**Done when:** a text with 3 mistakes creates 3 attempts with correct skill tags, and a perfect text gets no invented mistakes.
-
-## Step 4 – Tutor brain, Learn and Home
-
-This step adds the part you asked for: the app tells you what to study and teaches it.
+This step adds the part you asked for: the app tells you what to study and teaches it. (Swapped with Writing on 2026-11-19: I need rules and lessons before free writing. Older notes in docs/JOURNAL.md call this step "Step 4".)
 
 **Mastery (`tutor/mastery.py`, plain pandas, no AI)**
 
@@ -288,7 +270,7 @@ This step adds the part you asked for: the app tells you what to study and teach
 
 **"You must study X" message**
 
-- [ ] After each answer in Practice and Writing, check the skill. If it just became weak, show a box: "You missed verb to be in 6 of your last 10 answers. Study it now?" with a button to the lesson.
+- [ ] After each answer in Practice (and in Writing, once Step 4 exists), check the skill. If it just became weak, show a box: "You missed verb to be in 6 of your last 10 answers. Study it now?" with a button to the lesson.
 - [ ] Show the message once per skill per day, so it does not annoy you.
 
 **Learn section**
@@ -311,6 +293,24 @@ This step adds the part you asked for: the app tells you what to study and teach
 - [ ] Make Practice choose skills in a smart way: about 60% weak skills, 30% learning, 10% new or strong.
 
 **Done when:** you answer verb to be wrong 6 times on purpose, the app tells you to study it, the lesson uses your own mistakes, and Practice gives you more sentences about it.
+
+## Step 4 – Writing (check my sentence)
+
+Here you write freely and the AI finds every mistake, so one text can create several rows in the database. (Swapped with the Tutor brain on 2026-11-19. Older notes in docs/JOURNAL.md call this step "Step 3".)
+
+- [ ] Add a text box and a "Check" button. Limit the text to about 150 words to keep answers fast.
+- [ ] Write the schema `WritingCheck`: verdict, corrected text, more natural version, praise, and a list of mistakes. Each mistake has the wrong part, the fix, the reason, the skill id and the error type.
+- [ ] Write the prompt. The AI must keep your meaning, correct only real errors, and choose skill ids from your list.
+- [ ] Show your text with the wrong parts in red and the fixes in green.
+- [ ] Show the corrected text and the more natural version below.
+- [ ] Naturalness: when a sentence is correct but a native speaker would say it differently, save it with error type `naturalness`, verdict correct, source detected, and the closest skill (if nothing fits, `word_choice`). It never lowers the mastery score. Save my sentence + the natural version, so Review (Step 7) can bring these "expressions to learn" back.
+- [ ] Each checked text creates one row in `exercises` (section writing, prompt text = the writing prompt or your text, expected answer empty), so every attempt has an exercise\_id.
+- [ ] Save one attempt per mistake, verdict wrong, with its skill id and source "detected". For a text with no mistakes, save one correct attempt with the skill `writing_general`. All rows of one text share the same submission\_id.
+- [ ] Add a "Give me a writing prompt" button that uses your level and topic.
+- [ ] Add a "Try again" button: you rewrite the text without looking at the fix, and the AI checks it again.
+- [ ] Add 15 rows to the gold file for writing. Include 5 correct texts, to check that the AI does not invent mistakes.
+
+**Done when:** a text with 3 mistakes creates 3 attempts with correct skill tags, and a perfect text gets no invented mistakes.
 
 ## Step 5 – Listening
 
@@ -488,7 +488,7 @@ Four things can make the app teach badly, and each has a fix in the plan.
 
 | Risk | What happens | Fix |
 | --- | --- | --- |
-| The AI grades wrongly | You learn a wrong rule | The gold file and the 90% target (Steps 2, 3, 6). A small local model may fail this test: then use a bigger model or Groq |
+| The AI grades wrongly | You learn a wrong rule | The gold file and the 90% target (Steps 2, 4, 6). A small local model may fail this test: then use a bigger model or Groq |
 | The AI uses wrong skill tags | The tutor recommends the wrong topic | Fixed skill list, validation in code, and tags checked in the gold file |
 | Free limits change | The online AI stops working | Ollama or Groq as a backup, and the provider set in one setting |
 | You stop using it | No learning | Short daily goal, streak, and a limit of 20 reviews a day |

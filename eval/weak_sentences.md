@@ -22,7 +22,7 @@ form, or when its words are above the level.
 ## word_choice (B1)
 
 Not removed, but reported as `bad_sentence` in `problem_reports` (2026-11-19), so they leave the stock and their
-attempts do not count for mastery (Step 4). #28 was found while writing the gold file; then all 5 word_choice
+attempts do not count for mastery (Step 3). #28 was found while writing the gold file; then all 5 word_choice
 exercises of that batch had the same problem. Counted in the Part 4f hand review of generated exercises.
 
 | Reported id | Sentence | Expected | Prompt version | Why it is weak |

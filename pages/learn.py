@@ -3,4 +3,4 @@
 import streamlit as st
 
 st.title("Learn")
-st.info("Coming in Step 4: short lessons on your weakest skills.")
+st.info("Coming in Step 3: short lessons on your weakest skills.")
